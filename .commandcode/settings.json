@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(node --version)",
+      "Shell(npm:*)",
+      "Shell(node -e \"const {DatabaseSync} = require('node:sqlite'); const db = new DatabaseSync(':memory:'); db.exec('CREATE TABLE t(a)'); console.log('node:sqlite OK')\")",
+      "Shell(dir:*)",
+      "Shell(more:*)",
+      "Shell(curl -s -o NUL -w \"%{http_code}\" http://localhost:3000/api/repartidores)",
+      "Shell(curl -s http://localhost:3000/api/repartidores)",
+      "Shell(curl -s http://localhost:3000/api/pedidos)",
+      "Shell(curl -s -X POST http://localhost:3000/api/repartidores -H \"Content-Type: application/json\" -d \"{\\\"nombre\\\":\\\"Test Driver\\\",\\\"telefono\\\":\\\"999000111\\\",\\\"estado\\\":\\\"disponible\\\",\\\"lat\\\":-13.08,\\\"lng\\\":-76.39}\")",
+      "Shell(curl -s -X PUT http://localhost:3000/api/repartidores/5 -H \"Content-Type: application/json\" -d \"{\\\"nombre\\\":\\\"Test Driver Edit\\\",\\\"telefono\\\":\\\"999000222\\\",\\\"estado\\\":\\\"ocupado\\\",\\\"lat\\\":-13.09,\\\"lng\\\":-76.40}\")",
+      "Shell(curl -s -X DELETE http://localhost:3000/api/repartidores/5 -w \" HTTP:%{http_code}\")",
+      "Shell(curl -s -o NUL -w \"%{http_code}\" http://localhost:3000/)",
+      "Shell(curl -s http://localhost:3000/)",
+      "Shell(findstr:*)",
+      "powershell",
+      "Shell(curl -s -o NUL -w \"%{http_code}\\n\" http://localhost:3000/)",
+      "Shell(if:*)",
+      "Shell(Test-Path:*)",
+      "Shell({:*)",
+      "Shell(type:*)",
+      "Shell(curl -s -o NUL -w \"%{http_code}\\n\" http://localhost:3000/_next/static/css/app/layout.css)",
+      "Shell(powershell -Command \"Get-Content '.next\\static\\css\\7c2902882800fa2f.css' -TotalCount 5; Write-Output '---SIZE---'; (Get-Item '.next\\static\\css\\7c2902882800fa2f.css').Length\")"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

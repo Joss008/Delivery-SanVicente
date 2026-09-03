@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+*.tsbuildinfo
+*.db
+*.db-journal
+*.sqlite
+.env*.local
+.DS_Store
