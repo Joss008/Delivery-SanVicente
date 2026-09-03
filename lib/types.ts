@@ -16,9 +16,8 @@ export interface Repartidor {
 
 export interface Pedido {
   id: number;
-  cliente: string;
-  direccion: string;
-  total: number;
+  codigo: string;
+  descripcion: string;
   estado: EstadoPedido;
   repartidor_id: number | null;
   lat: number;

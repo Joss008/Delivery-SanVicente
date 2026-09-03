@@ -15,10 +15,15 @@ export function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-xl border border-border bg-card shadow-sm">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-xl border border-border bg-card shadow-lg">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{title}</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Completa los campos para guardar el registro.
+            </p>
+          </div>
           <button
             onClick={onClose}
             className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
@@ -27,7 +32,7 @@ export function Modal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        <div className="px-5 py-5">{children}</div>
       </div>
     </div>
   );

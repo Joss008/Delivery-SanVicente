@@ -25,7 +25,7 @@ Cada recurso con CRUD debe implementar las 4 operaciones completas: crear, lista
 CRUD completo de repartidores: crear, listar, editar y eliminar. Cada repartidor tiene nombre, teléfono, estado (disponible/ocupado/inactivo) y ubicación (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
 
 ### Módulo de pedidos
-CRUD completo de pedidos: crear, listar, editar y eliminar. Cada pedido tiene cliente, dirección, total, estado (pendiente/asignado/en_camino/entregado), repartidor asignado (opcional) y ubicación de entrega (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
+CRUD completo de pedidos: crear, listar, editar y eliminar. Cada pedido tiene cliente, dirección, estado (pendiente/asignado/en_camino/entregado), repartidor asignado (opcional) y ubicación de entrega (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
 
 ### Panel de mapa
 Dashboard con mapa (Leaflet + OpenStreetMap) que visualiza la ubicación de los repartidores y los pedidos mediante marcadores, con resumen lateral de repartidores activos y pedidos pendientes. Los datos se refrescan automáticamente cada 15 segundos.
@@ -38,19 +38,16 @@ Cada recurso implementa las 4 operaciones CRUD, con modales separados para crear
 ```
 ## Design System
 
-Estilo *minimalista, elegante y profesional tipo startup SaaS*, utilizando shadcn/ui como base.
+La interfaz debe tener un estilo **minimalista, elegante y profesional tipo startup SaaS**, usando shadcn/ui como base.
 
-- Interfaz limpia, ligera y con buen uso de espacios en blanco.
-- Paleta neutral (slate/zinc) con azul como color principal.
-- Verde para éxito/disponible, ámbar para advertencia/ocupado y rojo para errores.
-- Tipografía Inter, jerarquía clara y textos compactos.
-- Cards con rounded-xl, bordes suaves y sombras mínimas.
-- Usar componentes shadcn/ui antes de crear componentes personalizados.
-- Iconografía exclusivamente con lucide-react.
-- Tablas limpias, badges suaves y acciones discretas.
-- Formularios y modales simples, ordenados y poco densos.
-- Microinteracciones y hover sutiles, sin animaciones innecesarias.
-- Diseño responsive, priorizando la experiencia desktop.
-- Evitar gradientes, sombras fuertes, bordes gruesos, exceso de colores y saturación visual.
+- Priorizar una composición visual moderna: buena jerarquía, espacios en blanco, proporciones y distribución equilibrada.
+- No limitar el diseño a colores o estilos CSS: adaptar layout, navegación, cards, tablas, formularios y paneles para mejorar UX y apariencia.
+- Usar paleta neutral (`slate/zinc`) con azul como color principal y colores semánticos suaves para estados.
+- Tipografía `Inter`, textos compactos y jerarquía clara.
+- Cards con `rounded-xl`, bordes suaves, sombras mínimas y buen espaciado.
+- Usar componentes shadcn/ui e iconos `lucide-react`.
+- Evitar interfaces genéricas de panel administrativo, exceso de bordes, colores, sombras, gradientes y elementos innecesarios.
+- El resultado debe sentirse como un **producto SaaS moderno y premium**, no como componentes shadcn colocados sin diseño.
+- Mantener consistencia visual y responsive en todas las vistas.
 
-Ante varias opciones de diseño, elegir siempre la alternativa más simple, moderna y elegante.
+Al crear o modificar una vista, aplicar estos principios tanto a sus estilos como a su **estructura y composición visual**.

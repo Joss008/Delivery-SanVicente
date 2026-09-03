@@ -21,24 +21,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json();
-  const cliente = String(body.cliente ?? "").trim();
-  const direccion = String(body.direccion ?? "").trim();
-  const total = Number(body.total ?? 0);
+  const codigo = String(body.codigo ?? "").trim();
+  const descripcion = String(body.descripcion ?? "").trim();
   const estado = String(body.estado ?? "pendiente");
   const repartidor_id = body.repartidor_id ? Number(body.repartidor_id) : null;
   const lat = Number(body.lat ?? -13.0833);
   const lng = Number(body.lng ?? -76.3833);
 
-  if (!cliente || !direccion) {
-    return NextResponse.json({ error: "Cliente y dirección son obligatorios" }, { status: 400 });
+  if (!codigo || !descripcion) {
+    return NextResponse.json({ error: "Código y descripción son obligatorios" }, { status: 400 });
   }
 
   const db = getDb();
   const result = db
     .prepare(
-      "UPDATE pedidos SET cliente = ?, direccion = ?, total = ?, estado = ?, repartidor_id = ?, lat = ?, lng = ? WHERE id = ?"
+      "UPDATE pedidos SET codigo = ?, descripcion = ?, estado = ?, repartidor_id = ?, lat = ?, lng = ? WHERE id = ?"
     )
-    .run(cliente, direccion, total, estado, repartidor_id, lat, lng, Number(id));
+    .run(codigo, descripcion, estado, repartidor_id, lat, lng, Number(id));
 
   if (result.changes === 0) {
     return NextResponse.json({ error: "No encontrado" }, { status: 404 });

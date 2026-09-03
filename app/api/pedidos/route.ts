@@ -18,24 +18,23 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const cliente = String(body.cliente ?? "").trim();
-  const direccion = String(body.direccion ?? "").trim();
-  const total = Number(body.total ?? 0);
+  const codigo = String(body.codigo ?? "").trim();
+  const descripcion = String(body.descripcion ?? "").trim();
   const estado = String(body.estado ?? "pendiente");
   const repartidor_id = body.repartidor_id ? Number(body.repartidor_id) : null;
   const lat = Number(body.lat ?? -13.0833);
   const lng = Number(body.lng ?? -76.3833);
 
-  if (!cliente || !direccion) {
-    return NextResponse.json({ error: "Cliente y dirección son obligatorios" }, { status: 400 });
+  if (!codigo || !descripcion) {
+    return NextResponse.json({ error: "Código y descripción son obligatorios" }, { status: 400 });
   }
 
   const db = getDb();
   const result = db
     .prepare(
-      "INSERT INTO pedidos (cliente, direccion, total, estado, repartidor_id, lat, lng) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO pedidos (codigo, descripcion, estado, repartidor_id, lat, lng) VALUES (?, ?, ?, ?, ?, ?)"
     )
-    .run(cliente, direccion, total, estado, repartidor_id, lat, lng);
+    .run(codigo, descripcion, estado, repartidor_id, lat, lng);
 
   const row = db
     .prepare(`${SELECT} WHERE p.id = ?`)
