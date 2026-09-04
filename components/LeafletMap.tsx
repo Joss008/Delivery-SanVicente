@@ -64,7 +64,7 @@ export default function LeafletMap({
 
     pedidos.forEach((p) => {
       L.marker([p.lat, p.lng], { icon: pedidoIcon(p.estado) })
-        .bindPopup(`<strong>${p.codigo}</strong><br/>${p.descripcion}<br/>${p.estado}`)
+        .bindPopup(`<strong>${p.codigo}</strong><br/>${p.empresa}<br/>${p.direccion_entrega}<br/>${p.estado}`)
         .addTo(pedGroup);
     });
 
