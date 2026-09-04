@@ -4,10 +4,27 @@ import { Repartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function withCors(response: NextResponse): NextResponse {
+  Object.entries(CORS_HEADERS).forEach(([key, value]) => {
+    response.headers.set(key, value);
+  });
+  return response;
+}
+
+export async function OPTIONS() {
+  return withCors(new NextResponse(null, { status: 204 }));
+}
+
 export async function GET() {
   const db = getDb();
   const rows = db.prepare("SELECT * FROM repartidores ORDER BY id DESC").all() as unknown as Repartidor[];
-  return NextResponse.json(rows);
+  return withCors(NextResponse.json(rows));
 }
 
 export async function POST(req: NextRequest) {
@@ -19,7 +36,9 @@ export async function POST(req: NextRequest) {
   const lng = Number(body.lng ?? -76.3833);
 
   if (!nombre || !telefono) {
-    return NextResponse.json({ error: "Nombre y teléfono son obligatorios" }, { status: 400 });
+    return withCors(
+      NextResponse.json({ error: "Nombre y teléfono son obligatorios" }, { status: 400 })
+    );
   }
 
   const db = getDb();
@@ -32,5 +51,5 @@ export async function POST(req: NextRequest) {
   const row = db
     .prepare("SELECT * FROM repartidores WHERE id = ?")
     .get(Number(result.lastInsertRowid)) as unknown as Repartidor;
-  return NextResponse.json(row, { status: 201 });
+  return withCors(NextResponse.json(row, { status: 201 }));
 }
