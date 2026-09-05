@@ -22,6 +22,11 @@ export interface Repartidor {
   lat: number;
   lng: number;
   actualizado_en: string;
+  /**
+   * Fecha/hora de la última ubicación recibida desde la PWA del repartidor.
+   * Si es `null`, el repartidor aún no envió su GPS real y debe ocultarse del mapa.
+   */
+  ubicacion_recibida_en: string | null;
   empresa_id: number | null;
 }
 

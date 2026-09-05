@@ -7,7 +7,18 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "reparto.db");
 
 export const REPARTIDOR_PUBLIC_COLUMNS =
-  "id, nombre, telefono, estado, lat, lng, actualizado_en, empresa_id";
+  "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, empresa_id";
+
+// Coordenadas que se consideran "no provienen de la PWA" (defaults del schema/seed).
+// Se usan en la migración para distinguir ubicaciones reales de placeholders.
+const REPARTIDOR_DEFAULT_LAT = -13.0833;
+const REPARTIDOR_DEFAULT_LNG = -76.3833;
+const REPARTIDOR_SEED_COORDS: ReadonlyArray<readonly [number, number]> = [
+  [-13.0781, -76.3788],
+  [-13.0862, -76.3861],
+  [-13.0914, -76.3722],
+  [-13.0723, -76.3956],
+];
 
 export const ROL_ADMIN = 1;
 export const ROL_EMPRESA = 2;
@@ -105,6 +116,26 @@ function ensureSchema(database: DatabaseSync) {
   if (!repColNames.includes("empresa_id")) {
     database.exec("ALTER TABLE repartidores ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL");
   }
+  if (!repColNames.includes("ubicacion_recibida_en")) {
+    database.exec("ALTER TABLE repartidores ADD COLUMN ubicacion_recibida_en TEXT");
+  }
+
+  // Backfill: marcar como "ubicación recibida por la PWA" a los repartidores cuyas
+  // coordenadas no coinciden con los defaults ni con los valores del seed histórico.
+  // Los repartidores seed/default quedan sin marcar y no aparecen en el mapa
+  // hasta que la PWA envíe una ubicación real.
+  database
+    .prepare(
+      "UPDATE repartidores SET ubicacion_recibida_en = actualizado_en WHERE ubicacion_recibida_en IS NULL AND actualizado_en IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL AND NOT (lat = ? AND lng = ?)"
+    )
+    .run(REPARTIDOR_DEFAULT_LAT, REPARTIDOR_DEFAULT_LNG);
+  for (const [sLat, sLng] of REPARTIDOR_SEED_COORDS) {
+    database
+      .prepare(
+        "UPDATE repartidores SET ubicacion_recibida_en = NULL WHERE lat = ? AND lng = ?"
+      )
+      .run(sLat, sLng);
+  }
 
   const pedidoCols = database
     .prepare("SELECT name FROM pragma_table_info('pedidos')")
@@ -167,7 +198,7 @@ function seed(database: DatabaseSync) {
   const repCount = database.prepare("SELECT COUNT(*) AS n FROM repartidores").get() as { n: number };
   if (repCount.n === 0) {
     const insertRep = database.prepare(
-      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado, lat, lng) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado) VALUES (?, ?, ?, ?)"
     );
     const empresas = database
       .prepare("SELECT id, nombre FROM usuarios WHERE rol_id = ?")
@@ -175,15 +206,18 @@ function seed(database: DatabaseSync) {
     const empresaByNombre = new Map(empresas.map((e) => [e.nombre, e.id]));
     const fallbackEmpresaId = empresas[0]?.id ?? null;
 
-    const repartidores: [string | null, string, string, string, number, number][] = [
-      ["La Casa del Pollo", "Carlos Mendoza", "999111222", "disponible", -13.0781, -76.3788],
-      ["Parrillas El Fogón", "Luis Quispe", "999333444", "ocupado", -13.0862, -76.3861],
-      ["Chifa Dragón Dorado", "Ana Torres", "999555666", "disponible", -13.0914, -76.3722],
-      ["Menú Express Cañete", "Pedro Rojas", "999777888", "inactivo", -13.0723, -76.3956],
+    // Coordenadas vacías: la única fuente válida de lat/lng es la PWA
+    // (endpoint /api/ubicaciones). Hasta que el repartidor abra la PWA
+    // y se reporte su GPS real, no aparecerá en el mapa.
+    const repartidores: [string | null, string, string, string][] = [
+      ["La Casa del Pollo", "Carlos Mendoza", "999111222", "disponible"],
+      ["Parrillas El Fogón", "Luis Quispe", "999333444", "ocupado"],
+      ["Chifa Dragón Dorado", "Ana Torres", "999555666", "disponible"],
+      ["Menú Express Cañete", "Pedro Rojas", "999777888", "inactivo"],
     ];
-    for (const [empresaNombre, nombre, telefono, estado, lat, lng] of repartidores) {
+    for (const [empresaNombre, nombre, telefono, estado] of repartidores) {
       const empresaId = (empresaNombre && empresaByNombre.get(empresaNombre)) ?? fallbackEmpresaId;
-      insertRep.run(empresaId, nombre, telefono, estado, lat, lng);
+      insertRep.run(empresaId, nombre, telefono, estado);
     }
   } else {
     // Backfill: asignar repartidores sin empresa a la primera empresa disponible.

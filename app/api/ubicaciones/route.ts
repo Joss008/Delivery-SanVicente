@@ -27,8 +27,9 @@ export async function POST(req: NextRequest) {
     return withCors(NextResponse.json({ error: "lat y lng son obligatorios" }, { status: 400 }));
   }
 
-  db.prepare("UPDATE repartidores SET lat = ?, lng = ?, actualizado_en = datetime('now') WHERE id = ?")
-    .run(lat, lng, repartidor.id);
+  db.prepare(
+    "UPDATE repartidores SET lat = ?, lng = ?, actualizado_en = datetime('now'), ubicacion_recibida_en = datetime('now') WHERE id = ?"
+  ).run(lat, lng, repartidor.id);
 
   const row = db
     .prepare(`SELECT ${REPARTIDOR_PUBLIC_COLUMNS} FROM repartidores WHERE id = ?`)

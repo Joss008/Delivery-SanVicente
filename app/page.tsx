@@ -207,6 +207,7 @@ function EmpresaShell({
 
   const meta = PAGE_META[tab];
   const repartidoresActivos = repartidores.filter((r) => r.estado !== "inactivo");
+  const repartidoresEnMapa = repartidores.filter((r) => r.ubicacion_recibida_en);
   const pedidosPendientes = pedidos.filter((p) => p.estado === "pendiente");
   const pedidosEnCamino = pedidos.filter((p) => p.estado === "en_camino");
 
@@ -340,8 +341,8 @@ function EmpresaShell({
               </div>
 
               <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-                <Card className="min-h-[480px] overflow-hidden p-0">
-                  <MapView repartidores={repartidores} pedidos={pedidos} />
+                <Card className="flex h-[480px] flex-col overflow-hidden p-0">
+                  <MapView repartidores={repartidoresEnMapa} pedidos={pedidos} />
                 </Card>
 
                 <div className="space-y-6">
@@ -599,7 +600,7 @@ function RepartidorForm({
   onSaved: () => void;
   existing: Repartidor | null;
 }) {
-  const [form, setForm] = useState({ nombre: "", telefono: "", password: "", estado: "disponible", lat: -13.0833, lng: -76.3833 });
+  const [form, setForm] = useState({ nombre: "", telefono: "", password: "", estado: "disponible" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -612,11 +613,9 @@ function RepartidorForm({
         telefono: existing.telefono,
         password: "",
         estado: existing.estado,
-        lat: existing.lat,
-        lng: existing.lng,
       });
     } else {
-      setForm({ nombre: "", telefono: "", password: "", estado: "disponible", lat: -13.0833, lng: -76.3833 });
+      setForm({ nombre: "", telefono: "", password: "", estado: "disponible" });
     }
   }, [open, existing]);
 
@@ -669,14 +668,10 @@ function RepartidorForm({
             ))}
           </select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Latitud">
-            <input type="number" step="any" className={inputClass} value={form.lat} onChange={(e) => setForm({ ...form, lat: Number(e.target.value) })} />
-          </Field>
-          <Field label="Longitud">
-            <input type="number" step="any" className={inputClass} value={form.lng} onChange={(e) => setForm({ ...form, lng: Number(e.target.value) })} />
-          </Field>
-        </div>
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          La ubicación del repartidor la proporciona únicamente la PWA cuando inicia
+          sesión y reporta su GPS. No es posible asignar coordenadas manualmente.
+        </p>
         {error && (
           <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             {error}

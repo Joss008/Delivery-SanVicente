@@ -48,8 +48,6 @@ export async function POST(req: NextRequest) {
   const nombre = String(body.nombre ?? "").trim();
   const telefono = String(body.telefono ?? "").trim();
   const estado = String(body.estado ?? "disponible");
-  const lat = Number(body.lat ?? -13.0833);
-  const lng = Number(body.lng ?? -76.3833);
   // Contraseña del repartidor para la PWA: si el admin no define una, usa el teléfono.
   const password = String(body.password ?? "").trim() || telefono;
 
@@ -63,12 +61,15 @@ export async function POST(req: NextRequest) {
   const empresaId =
     actor.tipo === "empresa" && actor.usuario ? actor.usuario.id : Number(body.empresa_id) || null;
 
+  // Las coordenadas (lat/lng) NO se aceptan aquí. La única fuente válida es la PWA
+  // mediante POST /api/ubicaciones. Si el cliente envía lat/lng, los ignoramos
+  // para evitar valores fake en la base.
   const { hash, salt } = hashPassword(password);
   const result = db
     .prepare(
-      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado, lat, lng, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?)"
     )
-    .run(empresaId, nombre, telefono, estado, lat, lng, hash, salt);
+    .run(empresaId, nombre, telefono, estado, hash, salt);
 
   const row = db
     .prepare(`SELECT ${REPARTIDOR_PUBLIC_COLUMNS} FROM repartidores WHERE id = ?`)

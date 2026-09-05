@@ -47,8 +47,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const nombre = String(body.nombre ?? "").trim();
   const telefono = String(body.telefono ?? "").trim();
   const estado = String(body.estado ?? "disponible");
-  const lat = Number(body.lat ?? -13.0833);
-  const lng = Number(body.lng ?? -76.3833);
   const password = String(body.password ?? "").trim();
 
   if (!nombre || !telefono) {
@@ -57,20 +55,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     );
   }
 
+  // Nota: lat/lng NO se actualizan aquí. La única fuente válida de coordenadas
+  // es la PWA (POST /api/ubicaciones). Si llegan en el body, se ignoran.
   let result;
   if (password) {
     const { hash, salt } = hashPassword(password);
     result = db
       .prepare(
-        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, lat = ?, lng = ?, password_hash = ?, password_salt = ?, actualizado_en = datetime('now') WHERE id = ?"
+        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, password_hash = ?, password_salt = ?, actualizado_en = datetime('now') WHERE id = ?"
       )
-      .run(nombre, telefono, estado, lat, lng, hash, salt, Number(id));
+      .run(nombre, telefono, estado, hash, salt, Number(id));
   } else {
     result = db
       .prepare(
-        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, lat = ?, lng = ?, actualizado_en = datetime('now') WHERE id = ?"
+        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, actualizado_en = datetime('now') WHERE id = ?"
       )
-      .run(nombre, telefono, estado, lat, lng, Number(id));
+      .run(nombre, telefono, estado, Number(id));
   }
 
   if (result.changes === 0) {

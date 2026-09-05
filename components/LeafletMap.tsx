@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Repartidor, PedidoConRepartidor } from "@/lib/types";
@@ -13,11 +13,11 @@ function repartidorIcon(estado: string) {
   return L.divIcon({
     className: "",
     html: `
-      <div style="width:36px;height:36px;border-radius:50%;background:white;border:3px solid ${color};box-shadow:0 1px 4px rgba(15,23,42,.25);display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1;">
+      <div style="width:40px;height:40px;border-radius:50%;background:white;border:3px solid ${color};box-shadow:0 2px 6px rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;">
         🏍️
       </div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
   });
 }
 
@@ -45,33 +45,84 @@ export default function LeafletMap({
   repartidores: Repartidor[];
   pedidos: PedidoConRepartidor[];
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const repGroupRef = useRef<L.LayerGroup | null>(null);
+  const pedGroupRef = useRef<L.LayerGroup | null>(null);
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    const map = L.map("map").setView(CAÑETE_CENTER, 14);
+    if (!containerRef.current || initializedRef.current) return;
+    initializedRef.current = true;
+
+    const map = L.map(containerRef.current, { zoomControl: true }).setView(
+      CAÑETE_CENTER,
+      14
+    );
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "&copy; OpenStreetMap contributors",
       maxZoom: 19,
     }).addTo(map);
 
-    const repGroup = L.layerGroup().addTo(map);
-    const pedGroup = L.layerGroup().addTo(map);
+    repGroupRef.current = L.layerGroup().addTo(map);
+    pedGroupRef.current = L.layerGroup().addTo(map);
+
+    mapRef.current = map;
+
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    observer.observe(containerRef.current);
+
+    return () => {
+      observer.disconnect();
+      map.remove();
+      mapRef.current = null;
+      repGroupRef.current = null;
+      pedGroupRef.current = null;
+      initializedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const repGroup = repGroupRef.current;
+    const pedGroup = pedGroupRef.current;
+    if (!map || !repGroup || !pedGroup) return;
+
+    repGroup.clearLayers();
+    pedGroup.clearLayers();
+
+    const puntos: L.LatLngTuple[] = [];
 
     repartidores.forEach((r) => {
       L.marker([r.lat, r.lng], { icon: repartidorIcon(r.estado) })
-        .bindPopup(`<strong>${r.nombre}</strong><br/>${r.estado}`)
+        .bindPopup(
+          `<strong>${r.nombre}</strong><br/>${r.estado}<br/><span style="color:#64748b;font-size:11px;">${r.telefono}</span>`
+        )
         .addTo(repGroup);
+      puntos.push([r.lat, r.lng]);
     });
 
     pedidos.forEach((p) => {
       L.marker([p.lat, p.lng], { icon: pedidoIcon(p.estado) })
-        .bindPopup(`<strong>${p.codigo}</strong><br/>${p.empresa}<br/>${p.direccion_entrega}<br/>${p.estado}`)
+        .bindPopup(
+          `<strong>${p.codigo}</strong><br/>${p.empresa}<br/>${p.direccion_entrega}<br/>${p.estado}`
+        )
         .addTo(pedGroup);
+      puntos.push([p.lat, p.lng]);
     });
 
-    return () => {
-      map.remove();
-    };
+    if (puntos.length > 1) {
+      map.fitBounds(L.latLngBounds(puntos), {
+        padding: [40, 40],
+        maxZoom: 16,
+      });
+    } else if (puntos.length === 1) {
+      map.setView(puntos[0], 15);
+    }
   }, [repartidores, pedidos]);
 
-  return <div id="map" className="h-full w-full" />;
+  return <div ref={containerRef} className="h-full w-full" />;
 }
