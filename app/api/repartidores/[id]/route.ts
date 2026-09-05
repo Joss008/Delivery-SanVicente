@@ -47,6 +47,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const nombre = String(body.nombre ?? "").trim();
   const telefono = String(body.telefono ?? "").trim();
   const estado = String(body.estado ?? "disponible");
+  const telegram_chat_id =
+    body.telegram_chat_id === null || body.telegram_chat_id === undefined
+      ? undefined
+      : String(body.telegram_chat_id).trim() || null;
   const password = String(body.password ?? "").trim();
 
   if (!nombre || !telefono) {
@@ -57,20 +61,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   // Nota: lat/lng NO se actualizan aquí. La única fuente válida de coordenadas
   // es la PWA (POST /api/ubicaciones). Si llegan en el body, se ignoran.
+  // telegram_chat_id: si viene en el body (incluso null) se actualiza;
+  // si la clave no viene, se conserva el valor previo.
   let result;
+  const setTelegramClause = telegram_chat_id !== undefined ? ", telegram_chat_id = ?" : "";
+  const telegramParam: (string | null)[] = telegram_chat_id !== undefined ? [telegram_chat_id] : [];
+
   if (password) {
     const { hash, salt } = hashPassword(password);
     result = db
       .prepare(
-        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, password_hash = ?, password_salt = ?, actualizado_en = datetime('now') WHERE id = ?"
+        `UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, password_hash = ?, password_salt = ?${setTelegramClause}, actualizado_en = datetime('now') WHERE id = ?`
       )
-      .run(nombre, telefono, estado, hash, salt, Number(id));
+      .run(nombre, telefono, estado, hash, salt, ...telegramParam, Number(id));
   } else {
     result = db
       .prepare(
-        "UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, actualizado_en = datetime('now') WHERE id = ?"
+        `UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?${setTelegramClause}, actualizado_en = datetime('now') WHERE id = ?`
       )
-      .run(nombre, telefono, estado, Number(id));
+      .run(nombre, telefono, estado, ...telegramParam, Number(id));
   }
 
   if (result.changes === 0) {

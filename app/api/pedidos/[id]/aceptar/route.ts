@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { withCors, corsPreflight } from "@/lib/cors";
 import { bearerToken, getRepartidorByToken } from "@/lib/auth";
-import { enviarAlertaTelegram } from "@/lib/telegram";
 import { PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +41,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   db.prepare("UPDATE repartidores SET estado = 'ocupado' WHERE id = ?").run(repartidor.id);
 
   const row = db.prepare(`${SELECT} WHERE p.id = ?`).get(id) as unknown as PedidoConRepartidor;
-  await enviarAlertaTelegram(`🚚 Pedido <b>${row.codigo}</b> asignado a ${repartidor.nombre}.`);
 
   return withCors(NextResponse.json(row));
 }

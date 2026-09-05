@@ -7,7 +7,7 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "reparto.db");
 
 export const REPARTIDOR_PUBLIC_COLUMNS =
-  "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, empresa_id";
+  "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, empresa_id, telegram_chat_id";
 
 // Coordenadas que se consideran "no provienen de la PWA" (defaults del schema/seed).
 // Se usan en la migración para distinguir ubicaciones reales de placeholders.
@@ -118,6 +118,9 @@ function ensureSchema(database: DatabaseSync) {
   }
   if (!repColNames.includes("ubicacion_recibida_en")) {
     database.exec("ALTER TABLE repartidores ADD COLUMN ubicacion_recibida_en TEXT");
+  }
+  if (!repColNames.includes("telegram_chat_id")) {
+    database.exec("ALTER TABLE repartidores ADD COLUMN telegram_chat_id TEXT");
   }
 
   // Backfill: marcar como "ubicación recibida por la PWA" a los repartidores cuyas

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { withCors } from "@/lib/cors";
 import { getActor } from "@/lib/auth";
+import { notificarRepartidor, notificarRepartidoresDisponibles } from "@/lib/telegram";
 import { PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -50,8 +51,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const actor = getActor(db, req);
 
   const current = db
-    .prepare("SELECT id, empresa_id FROM pedidos WHERE id = ?")
-    .get(Number(id)) as { id: number; empresa_id: number | null } | undefined;
+    .prepare("SELECT id, empresa_id, estado, repartidor_id FROM pedidos WHERE id = ?")
+    .get(Number(id)) as
+    | { id: number; empresa_id: number | null; estado: string; repartidor_id: number | null }
+    | undefined;
   if (!current) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
   }
@@ -130,6 +133,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const row = db
     .prepare(`${SELECT_BASE} WHERE p.id = ?`)
     .get(Number(id)) as unknown as PedidoConRepartidor;
+
+  // Notificación por Telegram:
+  // - Si pasa a pendiente y no hay repartidor, broadcast a disponibles.
+  // - Si se asigna a un repartidor (nuevo o distinto al anterior), avísale.
+  // - Si se quita un repartidor asignado, se considera reasignación.
+  const prevRep = current.repartidor_id ?? null;
+  const newRep = row.repartidor_id ?? null;
+  const prevEstado = current.estado ?? null;
+  const newEstado = row.estado;
+  const broadcast =
+    newEstado === "pendiente" && newRep == null;
+  const asignoNuevoRepartidor = newRep != null && newRep !== prevRep;
+
+  if (broadcast) {
+    const msg = `🆕 Pedido disponible <b>${row.codigo}</b>\n${row.empresa}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+    await notificarRepartidoresDisponibles(db, msg, { soloEmpresaId: row.empresa_id });
+  } else if (asignoNuevoRepartidor && (prevEstado !== newEstado || prevRep == null)) {
+    const msg = `📋 Se te asignó el pedido <b>${row.codigo}</b>\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+    await notificarRepartidor(db, newRep, msg);
+  }
+
   return withCors(NextResponse.json(row));
 }
 
@@ -139,8 +163,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const actor = getActor(db, req);
 
   const current = db
-    .prepare("SELECT id, empresa_id FROM pedidos WHERE id = ?")
-    .get(Number(id)) as { id: number; empresa_id: number | null } | undefined;
+    .prepare(
+      "SELECT p.id, p.empresa_id, p.codigo, p.repartidor_id FROM pedidos p WHERE p.id = ?"
+    )
+    .get(Number(id)) as
+    | { id: number; empresa_id: number | null; codigo: string; repartidor_id: number | null }
+    | undefined;
   if (!current) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
   }
@@ -152,5 +180,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (result.changes === 0) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
   }
+
+  if (current.repartidor_id != null) {
+    await notificarRepartidor(
+      db,
+      current.repartidor_id,
+      `❌ El pedido <b>${current.codigo}</b> fue cancelado.`
+    );
+  }
+
   return withCors(NextResponse.json({ ok: true }));
 }

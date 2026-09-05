@@ -28,6 +28,11 @@ export interface Repartidor {
    */
   ubicacion_recibida_en: string | null;
   empresa_id: number | null;
+  /**
+   * Chat ID de Telegram del repartidor. Si está definido, el sistema le envía
+   * notificaciones push cuando se le asignan pedidos o hay pedidos disponibles.
+   */
+  telegram_chat_id: string | null;
 }
 
 export interface Pedido {

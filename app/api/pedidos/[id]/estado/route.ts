@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { withCors, corsPreflight } from "@/lib/cors";
 import { bearerToken, getRepartidorByToken } from "@/lib/auth";
-import { enviarAlertaTelegram } from "@/lib/telegram";
 import { EstadoPedido, PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +53,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const row = db.prepare(`${SELECT} WHERE p.id = ?`).get(id) as unknown as PedidoConRepartidor;
-  await enviarAlertaTelegram(`📦 Pedido <b>${row.codigo}</b> actualizado a <b>${row.estado}</b>.`);
 
   return withCors(NextResponse.json(row));
 }

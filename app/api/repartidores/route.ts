@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
   const nombre = String(body.nombre ?? "").trim();
   const telefono = String(body.telefono ?? "").trim();
   const estado = String(body.estado ?? "disponible");
+  const telegram_chat_id = body.telegram_chat_id
+    ? String(body.telegram_chat_id).trim() || null
+    : null;
   // Contraseña del repartidor para la PWA: si el admin no define una, usa el teléfono.
   const password = String(body.password ?? "").trim() || telefono;
 
@@ -67,9 +70,9 @@ export async function POST(req: NextRequest) {
   const { hash, salt } = hashPassword(password);
   const result = db
     .prepare(
-      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado, password_hash, password_salt, telegram_chat_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
-    .run(empresaId, nombre, telefono, estado, hash, salt);
+    .run(empresaId, nombre, telefono, estado, hash, salt, telegram_chat_id);
 
   const row = db
     .prepare(`SELECT ${REPARTIDOR_PUBLIC_COLUMNS} FROM repartidores WHERE id = ?`)

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { withCors, corsPreflight } from "@/lib/cors";
 import { bearerToken, getRepartidorByToken } from "@/lib/auth";
-import { enviarAlertaTelegram } from "@/lib/telegram";
 import { PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -33,8 +32,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!row || row.estado !== "pendiente") {
     return withCors(NextResponse.json({ error: "No se pudo rechazar el pedido" }, { status: 409 }));
   }
-
-  await enviarAlertaTelegram(`⚠️ Pedido <b>${row.codigo}</b> rechazado por ${repartidor.nombre}.`);
 
   return withCors(NextResponse.json(row));
 }

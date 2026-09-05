@@ -3,6 +3,7 @@ import type { SQLInputValue } from "node:sqlite";
 import { getDb } from "@/lib/db";
 import { withCors, corsPreflight } from "@/lib/cors";
 import { getActor } from "@/lib/auth";
+import { notificarRepartidor, notificarRepartidoresDisponibles } from "@/lib/telegram";
 import { PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -136,5 +137,15 @@ export async function POST(req: NextRequest) {
   const row = db
     .prepare(`${SELECT_BASE} WHERE p.id = ?`)
     .get(Number(result.lastInsertRowid)) as unknown as PedidoConRepartidor;
+
+  // Notificación por Telegram: si el pedido se crea ya asignado, avisa al
+  // repartidor; si queda pendiente, hace broadcast a los disponibles.
+  const msg = `🆕 Nuevo pedido <b>${row.codigo}</b>\n${row.empresa}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+  if (row.estado === "pendiente" && row.repartidor_id == null) {
+    await notificarRepartidoresDisponibles(db, msg, { soloEmpresaId: row.empresa_id });
+  } else if (row.repartidor_id != null) {
+    await notificarRepartidor(db, row.repartidor_id, msg);
+  }
+
   return withCors(NextResponse.json(row, { status: 201 }));
 }
