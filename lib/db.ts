@@ -3,11 +3,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { hashPassword } from "@/lib/auth";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// DATA_DIR puede apuntar a un disco persistente en producción (Render).
+// Por defecto se usa ./data dentro del proyecto (útil para dev local).
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "reparto.db");
 
 export const REPARTIDOR_PUBLIC_COLUMNS =
-  "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, empresa_id, telegram_chat_id";
+  "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, gps_pausado_en, empresa_id, telegram_chat_id";
 
 // Coordenadas que se consideran "no provienen de la PWA" (defaults del schema/seed).
 // Se usan en la migración para distinguir ubicaciones reales de placeholders.
@@ -38,6 +42,7 @@ function ensureSchema(database: DatabaseSync) {
       password_hash TEXT,
       password_salt TEXT,
       token TEXT,
+      direccion TEXT,
       creado_en TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -119,6 +124,12 @@ function ensureSchema(database: DatabaseSync) {
   if (!repColNames.includes("ubicacion_recibida_en")) {
     database.exec("ALTER TABLE repartidores ADD COLUMN ubicacion_recibida_en TEXT");
   }
+  if (!repColNames.includes("gps_pausado_en")) {
+    // Timestamp de cuándo el repartidor desactivó manualmente el envío de
+    // ubicación desde la PWA. Mientras esté definido, el mapa muestra al
+    // repartidor en su última coordenada conocida con un marcador apagado.
+    database.exec("ALTER TABLE repartidores ADD COLUMN gps_pausado_en TEXT");
+  }
   if (!repColNames.includes("telegram_chat_id")) {
     database.exec("ALTER TABLE repartidores ADD COLUMN telegram_chat_id TEXT");
   }
@@ -146,6 +157,14 @@ function ensureSchema(database: DatabaseSync) {
   const pedidoColNames = pedidoCols.map((c) => c.name);
   if (!pedidoColNames.includes("empresa_id")) {
     database.exec("ALTER TABLE pedidos ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE");
+  }
+
+  const usuarioCols = database
+    .prepare("SELECT name FROM pragma_table_info('usuarios')")
+    .all() as { name: string }[];
+  const usuarioColNames = usuarioCols.map((c) => c.name);
+  if (!usuarioColNames.includes("direccion")) {
+    database.exec("ALTER TABLE usuarios ADD COLUMN direccion TEXT");
   }
 }
 
@@ -176,11 +195,31 @@ function seed(database: DatabaseSync) {
   }
 
   // Empresas demo: una por cada empresa del seed histórico de pedidos.
-  const seedEmpresas: { nombre: string; email: string; password: string }[] = [
-    { nombre: "La Casa del Pollo", email: "casa@reparto.local", password: "demo1234" },
-    { nombre: "Parrillas El Fogón", email: "fogon@reparto.local", password: "demo1234" },
-    { nombre: "Menú Express Cañete", email: "menu@reparto.local", password: "demo1234" },
-    { nombre: "Chifa Dragón Dorado", email: "dragon@reparto.local", password: "demo1234" },
+  const seedEmpresas: { nombre: string; email: string; password: string; direccion: string }[] = [
+    {
+      nombre: "La Casa del Pollo",
+      email: "casa@reparto.local",
+      password: "demo1234",
+      direccion: "Av. Mariscal Benavides 450, San Vicente de Cañete",
+    },
+    {
+      nombre: "Parrillas El Fogón",
+      email: "fogon@reparto.local",
+      password: "demo1234",
+      direccion: "Av. San Martín 780, San Vicente de Cañete",
+    },
+    {
+      nombre: "Menú Express Cañete",
+      email: "menu@reparto.local",
+      password: "demo1234",
+      direccion: "Jr. Lima 320, San Vicente de Cañete",
+    },
+    {
+      nombre: "Chifa Dragón Dorado",
+      email: "dragon@reparto.local",
+      password: "demo1234",
+      direccion: "Av. Arica 210, San Vicente de Cañete",
+    },
   ];
   const existingEmpresaNames = new Set(
     (database.prepare("SELECT nombre FROM usuarios WHERE rol_id = ?").all(ROL_EMPRESA) as {
@@ -188,12 +227,12 @@ function seed(database: DatabaseSync) {
     }[]).map((u) => u.nombre)
   );
   const insertEmpresa = database.prepare(
-    "INSERT INTO usuarios (rol_id, nombre, email, password_hash, password_salt) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO usuarios (rol_id, nombre, email, password_hash, password_salt, direccion) VALUES (?, ?, ?, ?, ?, ?)"
   );
   for (const e of seedEmpresas) {
     if (!existingEmpresaNames.has(e.nombre)) {
       const { hash, salt } = hashPassword(e.password);
-      insertEmpresa.run(ROL_EMPRESA, e.nombre, e.email, hash, salt);
+      insertEmpresa.run(ROL_EMPRESA, e.nombre, e.email, hash, salt, e.direccion);
     }
   }
 
@@ -203,39 +242,24 @@ function seed(database: DatabaseSync) {
     const insertRep = database.prepare(
       "INSERT INTO repartidores (empresa_id, nombre, telefono, estado) VALUES (?, ?, ?, ?)"
     );
-    const empresas = database
-      .prepare("SELECT id, nombre FROM usuarios WHERE rol_id = ?")
-      .all(ROL_EMPRESA) as { id: number; nombre: string }[];
-    const empresaByNombre = new Map(empresas.map((e) => [e.nombre, e.id]));
-    const fallbackEmpresaId = empresas[0]?.id ?? null;
 
-    // Coordenadas vacías: la única fuente válida de lat/lng es la PWA
-    // (endpoint /api/ubicaciones). Hasta que el repartidor abra la PWA
-    // y se reporte su GPS real, no aparecerá en el mapa.
-    const repartidores: [string | null, string, string, string][] = [
-      ["La Casa del Pollo", "Carlos Mendoza", "999111222", "disponible"],
-      ["Parrillas El Fogón", "Luis Quispe", "999333444", "ocupado"],
-      ["Chifa Dragón Dorado", "Ana Torres", "999555666", "disponible"],
-      ["Menú Express Cañete", "Pedro Rojas", "999777888", "inactivo"],
+    // Repartidores externos: NO pertenecen a una empresa concreta. La columna
+    // `empresa_id` se conserva por compatibilidad pero queda NULL para los
+    // nuevos registros. Coordenadas vacías: la única fuente válida de lat/lng
+    // es la PWA (endpoint /api/ubicaciones).
+    const repartidores: [string, string, string][] = [
+      ["Carlos Mendoza", "999111222", "disponible"],
+      ["Luis Quispe", "999333444", "ocupado"],
+      ["Ana Torres", "999555666", "disponible"],
+      ["Pedro Rojas", "999777888", "inactivo"],
     ];
-    for (const [empresaNombre, nombre, telefono, estado] of repartidores) {
-      const empresaId = (empresaNombre && empresaByNombre.get(empresaNombre)) ?? fallbackEmpresaId;
-      insertRep.run(empresaId, nombre, telefono, estado);
+    for (const [nombre, telefono, estado] of repartidores) {
+      insertRep.run(null, nombre, telefono, estado);
     }
   } else {
-    // Backfill: asignar repartidores sin empresa a la primera empresa disponible.
-    const orphanReps = database
-      .prepare("SELECT id FROM repartidores WHERE empresa_id IS NULL")
-      .all() as { id: number }[];
-    if (orphanReps.length > 0) {
-      const fallback = database
-        .prepare("SELECT id FROM usuarios WHERE rol_id = ? ORDER BY id ASC LIMIT 1")
-        .get(ROL_EMPRESA) as { id: number } | undefined;
-      if (fallback) {
-        const stmt = database.prepare("UPDATE repartidores SET empresa_id = ? WHERE empresa_id IS NULL");
-        stmt.run(fallback.id);
-      }
-    }
+    // Backfill: repartidores externos — limpiamos cualquier asignación a una
+    // empresa concreta que pueda quedar en bases existentes.
+    database.exec("UPDATE repartidores SET empresa_id = NULL");
   }
 
   const pedCount = database.prepare("SELECT COUNT(*) AS n FROM pedidos").get() as { n: number };
@@ -253,6 +277,20 @@ function seed(database: DatabaseSync) {
       const empId = empresaByNombre.get(p.empresa) ?? fallback;
       if (empId !== null) {
         database.prepare("UPDATE pedidos SET empresa_id = ? WHERE id = ?").run(empId, p.id);
+      }
+    }
+    // Backfill: si una empresa aún no tiene dirección de local, tomar la del primer
+    // pedido histórico asociado (su `direccion_recojo` representaba su dirección).
+    const empresasSinDireccion = database
+      .prepare("SELECT id FROM usuarios WHERE rol_id = ? AND (direccion IS NULL OR direccion = '')")
+      .all(ROL_EMPRESA) as { id: number }[];
+    const primeraDireccionStmt = database.prepare(
+      "SELECT direccion_recojo FROM pedidos WHERE empresa_id = ? AND direccion_recojo IS NOT NULL AND direccion_recojo != '' ORDER BY id ASC LIMIT 1"
+    );
+    for (const e of empresasSinDireccion) {
+      const row = primeraDireccionStmt.get(e.id) as { direccion_recojo: string } | undefined;
+      if (row?.direccion_recojo) {
+        database.prepare("UPDATE usuarios SET direccion = ? WHERE id = ?").run(row.direccion_recojo, e.id);
       }
     }
     return;
@@ -286,5 +324,99 @@ export function getDb(): DatabaseSync {
   ensureSchema(db);
   seed(db);
   ensureDefaultPasswords(db);
+
+  // Backfill en segundo plano: re-geocodifica pedidos cuyas coordenadas siguen
+  // siendo el placeholder (-13.0833, -76.3833). No bloquea el arranque del
+  // servidor y respeta el rate-limit de Nominatim (~1 req/s).
+  void backfillPedidoCoords(db);
+
   return db;
+}
+
+const PLACEHOLDER_LAT = -13.0833;
+const PLACEHOLDER_LNG = -76.3833;
+const BACKFILL_RADIUS_KM = 200;
+
+declare global {
+
+  var __geocodeBackfillRunning: boolean | undefined;
+}
+
+async function backfillPedidoCoords(database: DatabaseSync): Promise<void> {
+  if (globalThis.__geocodeBackfillRunning) return;
+  globalThis.__geocodeBackfillRunning = true;
+
+  try {
+    // Importación perezosa para no introducir ciclos con lib/geocode.
+    const { geocodeAddress } = await import("@/lib/geocode");
+
+    // Re-geocodificamos:
+    //   1) los pedidos con coordenadas placeholder exactas
+    //   2) los pedidos con coordenadas fuera de la zona de Cañete (errores
+    //      previos que el filtro regional del mapa estaría ocultando).
+    const allRows = database
+      .prepare(
+        "SELECT id, direccion_entrega, lat, lng FROM pedidos WHERE direccion_entrega IS NOT NULL AND direccion_entrega != ''"
+      )
+      .all() as Array<{
+      id: number;
+      direccion_entrega: string;
+      lat: number;
+      lng: number;
+    }>;
+
+    const CAÑETE_LAT = PLACEHOLDER_LAT;
+    const CAÑETE_LNG = PLACEHOLDER_LNG;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const haversineKm = (
+      lat1: number,
+      lon1: number,
+      lat2: number,
+      lon2: number
+    ) => {
+      const R = 6371;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    };
+
+    const candidatos = allRows.filter((row) => {
+      const esPlaceholder =
+        row.lat === PLACEHOLDER_LAT && row.lng === PLACEHOLDER_LNG;
+      const distancia = haversineKm(CAÑETE_LAT, CAÑETE_LNG, row.lat, row.lng);
+      return esPlaceholder || distancia > BACKFILL_RADIUS_KM;
+    });
+
+    if (candidatos.length === 0) return;
+
+    console.log(
+      `[geocode-backfill] Re-geocodificando ${candidatos.length} pedido(s) con coordenadas dudosas…`
+    );
+    const update = database.prepare(
+      "UPDATE pedidos SET lat = ?, lng = ? WHERE id = ?"
+    );
+    for (const row of candidatos) {
+      try {
+        const geo = await geocodeAddress(row.direccion_entrega);
+        if (geo) {
+          update.run(geo.lat, geo.lng, row.id);
+          console.log(
+            `[geocode-backfill] Pedido ${row.id} → ${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`
+          );
+        }
+      } catch (err) {
+        console.warn(`[geocode-backfill] Pedido ${row.id}:`, err);
+      }
+      // ~1.1s entre peticiones para respetar el límite de Nominatim.
+      await new Promise((r) => setTimeout(r, 1100));
+    }
+    console.log("[geocode-backfill] Listo.");
+  } catch (err) {
+    console.warn("[geocode-backfill] Error general:", err);
+  } finally {
+    globalThis.__geocodeBackfillRunning = false;
+  }
 }

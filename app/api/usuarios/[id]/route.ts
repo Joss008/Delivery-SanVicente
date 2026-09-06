@@ -7,7 +7,7 @@ import { Usuario } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 const SELECT = `
-  SELECT id, rol_id, nombre, email, creado_en
+  SELECT id, rol_id, nombre, email, direccion, creado_en
   FROM usuarios
   WHERE id = ? AND rol_id = ?
 `;
@@ -44,6 +44,9 @@ export async function PUT(
   const nombre = String(body.nombre ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "").trim();
+  const direccion = body.direccion === undefined || body.direccion === null
+    ? undefined
+    : String(body.direccion).trim();
 
   if (!nombre || !email) {
     return withCors(
@@ -63,17 +66,21 @@ export async function PUT(
     }
   }
 
+  const updateParams: (string | number | null)[] = [nombre, email];
+  let setDireccion = "";
+  if (direccion !== undefined) {
+    setDireccion = ", direccion = ?";
+    updateParams.push(direccion || null);
+  }
   if (password) {
     const { hash, salt } = hashPassword(password);
     db.prepare(
-      "UPDATE usuarios SET nombre = ?, email = ?, password_hash = ?, password_salt = ? WHERE id = ?"
-    ).run(nombre, email, hash, salt, current.id);
+      `UPDATE usuarios SET nombre = ?, email = ?, password_hash = ?, password_salt = ?${setDireccion} WHERE id = ?`
+    ).run(hash, salt, ...updateParams, current.id);
   } else {
-    db.prepare("UPDATE usuarios SET nombre = ?, email = ? WHERE id = ?").run(
-      nombre,
-      email,
-      current.id
-    );
+    db.prepare(
+      `UPDATE usuarios SET nombre = ?, email = ?${setDireccion} WHERE id = ?`
+    ).run(...updateParams, current.id);
   }
 
   // Si cambió el nombre, sincronizar el campo texto `pedidos.empresa` para los pedidos de esta empresa.

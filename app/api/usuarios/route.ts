@@ -7,7 +7,7 @@ import { Usuario } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 const SELECT = `
-  SELECT id, rol_id, nombre, email, creado_en
+  SELECT id, rol_id, nombre, email, direccion, creado_en
   FROM usuarios
   WHERE rol_id = ?
   ORDER BY nombre ASC
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
   const nombre = String(body.nombre ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
   const password = String(body.password ?? "").trim();
+  const direccion = String(body.direccion ?? "").trim();
 
   if (!nombre || !email || !password) {
     return withCors(
@@ -66,12 +67,14 @@ export async function POST(req: NextRequest) {
   const { hash, salt } = hashPassword(password);
   const result = db
     .prepare(
-      "INSERT INTO usuarios (rol_id, nombre, email, password_hash, password_salt) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO usuarios (rol_id, nombre, email, password_hash, password_salt, direccion) VALUES (?, ?, ?, ?, ?, ?)"
     )
-    .run(ROL_EMPRESA, nombre, email, hash, salt);
+    .run(ROL_EMPRESA, nombre, email, hash, salt, direccion || null);
 
   const row = db
-    .prepare("SELECT id, rol_id, nombre, email, creado_en FROM usuarios WHERE id = ?")
+    .prepare(
+      "SELECT id, rol_id, nombre, email, direccion, creado_en FROM usuarios WHERE id = ?"
+    )
     .get(Number(result.lastInsertRowid)) as unknown as Usuario;
   return withCors(NextResponse.json(row, { status: 201 }));
 }

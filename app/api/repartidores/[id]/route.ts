@@ -6,12 +6,11 @@ import { Repartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-function canManage(actor: ReturnType<typeof getActor>, row: { empresa_id: number | null }) {
-  if (actor.tipo === "admin") return true;
-  if (actor.tipo === "empresa" && actor.usuario) {
-    return row.empresa_id === actor.usuario.id;
+function requireAdmin(actor: ReturnType<typeof getActor>) {
+  if (actor.tipo !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-  return false;
+  return null;
 }
 
 export async function OPTIONS() {
@@ -32,15 +31,14 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const db = getDb();
   const actor = getActor(db, req);
+  const denied = requireAdmin(actor);
+  if (denied) return withCors(denied);
 
   const current = db
-    .prepare("SELECT id, empresa_id FROM repartidores WHERE id = ?")
-    .get(Number(id)) as { id: number; empresa_id: number | null } | undefined;
+    .prepare("SELECT id FROM repartidores WHERE id = ?")
+    .get(Number(id)) as { id: number } | undefined;
   if (!current) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
-  }
-  if (!canManage(actor, current)) {
-    return withCors(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
   }
 
   const body = await req.json();
@@ -96,15 +94,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const { id } = await params;
   const db = getDb();
   const actor = getActor(db, req);
+  const denied = requireAdmin(actor);
+  if (denied) return withCors(denied);
 
   const current = db
-    .prepare("SELECT id, empresa_id FROM repartidores WHERE id = ?")
-    .get(Number(id)) as { id: number; empresa_id: number | null } | undefined;
+    .prepare("SELECT id FROM repartidores WHERE id = ?")
+    .get(Number(id)) as { id: number } | undefined;
   if (!current) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
-  }
-  if (!canManage(actor, current)) {
-    return withCors(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
   }
 
   const result = db.prepare("DELETE FROM repartidores WHERE id = ?").run(Number(id));

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Building2,
+  MapPin,
   Pencil,
   Plus,
   RefreshCw,
@@ -12,6 +13,12 @@ import {
 import { Button, Card, Field, inputClass, Modal } from "@/components/ui";
 import { authFetch } from "@/lib/clientAuth";
 import type { Usuario } from "@/lib/types";
+import {
+  getDepartamentos,
+  getProvincias,
+  getDistritos,
+} from "@/lib/peru-ubigeo";
+import EmpresaLocationMap from "@/components/EmpresaLocationMap";
 
 interface AdminDashboardProps {
   currentAdmin: { id: number; nombre: string; email: string };
@@ -189,18 +196,60 @@ function EmpresaForm({
   existing: Usuario | null;
 }) {
   const [form, setForm] = useState({ nombre: "", email: "", password: "" });
+  const [departamento, setDepartamento] = useState("");
+  const [provincia, setProvincia] = useState("");
+  const [distrito, setDistrito] = useState("");
+  const [direccionExacta, setDireccionExacta] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const departamentos = getDepartamentos();
+  const provincias = departamento ? getProvincias(departamento) : [];
+  const distritos = departamento && provincia ? getDistritos(departamento, provincia) : [];
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setForm({ nombre: "", email: "", password: "" });
+    setDepartamento("");
+    setProvincia("");
+    setDistrito("");
+    setDireccionExacta("");
     if (existing) {
-      setForm({ nombre: existing.nombre, email: existing.email, password: "" });
-    } else {
-      setForm({ nombre: "", email: "", password: "" });
+      setForm({
+        nombre: existing.nombre,
+        email: existing.email,
+        password: "",
+      });
+      // En edición mostramos la dirección registrada como texto libre
+      // (compatibilidad con datos antiguos). El usuario puede cambiarla
+      // escribiendo una nueva referencia exacta.
+      setDireccionExacta(existing.direccion ?? "");
     }
   }, [open, existing]);
+
+  // Resets en cascada: cambiar departamento limpia provincia/distrito.
+  useEffect(() => {
+    if (!departamento) {
+      setProvincia("");
+      setDistrito("");
+      return;
+    }
+    if (!provincias.includes(provincia)) {
+      setProvincia("");
+      setDistrito("");
+    }
+  }, [departamento]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!provincia) {
+      setDistrito("");
+      return;
+    }
+    if (!distritos.includes(distrito)) {
+      setDistrito("");
+    }
+  }, [provincia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -209,9 +258,30 @@ function EmpresaForm({
     try {
       const url = existing ? `/api/usuarios/${existing.id}` : "/api/usuarios";
       const method = existing ? "PUT" : "POST";
+
+      // En creación nueva requerimos los 3 selects. En edición permitimos
+      // que la dirección quede como texto libre (compat con empresas
+      // registradas antes de este cambio).
+      let direccionFinal = direccionExacta.trim();
+      if (!existing || departamento) {
+        if (!departamento || !provincia || !distrito) {
+          setError("Selecciona departamento, provincia y distrito.");
+          setSaving(false);
+          return;
+        }
+        const partes = [
+          direccionExacta.trim(),
+          distrito,
+          provincia,
+          departamento,
+        ].filter(Boolean);
+        direccionFinal = partes.join(", ");
+      }
+
       const body: Record<string, string> = {
         nombre: form.nombre,
         email: form.email,
+        direccion: direccionFinal,
       };
       if (form.password) body.password = form.password;
       const res = await authFetch(url, {
@@ -253,6 +323,90 @@ function EmpresaForm({
             onChange={(e) => setForm({ ...form, email: e.target.value })}
           />
         </Field>
+
+        <div className="space-y-2">
+          <p className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <MapPin className="h-3.5 w-3.5" /> Ubicación del negocio (Perú)
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Departamento">
+              <select
+                className={inputClass}
+                value={departamento}
+                onChange={(e) => setDepartamento(e.target.value)}
+                required
+              >
+                <option value="">Selecciona…</option>
+                {departamentos.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Provincia">
+              <select
+                className={inputClass}
+                value={provincia}
+                onChange={(e) => setProvincia(e.target.value)}
+                disabled={!departamento}
+                required
+              >
+                <option value="">Selecciona…</option>
+                {provincias.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Distrito">
+              <select
+                className={inputClass}
+                value={distrito}
+                onChange={(e) => setDistrito(e.target.value)}
+                disabled={!provincia}
+                required
+              >
+                <option value="">Selecciona…</option>
+                {distritos.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <Field label="Dirección exacta (calle, avenida, número)">
+            <input
+              className={inputClass}
+              value={direccionExacta}
+              placeholder="Av. Mariscal Benavides 450"
+              onChange={(e) => setDireccionExacta(e.target.value)}
+            />
+          </Field>
+          <EmpresaLocationMap
+            departamento={departamento}
+            provincia={provincia}
+            distrito={distrito}
+            direccionExacta={direccionExacta}
+          />
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            La ubicación registrada se usará automáticamente como punto de
+            recojo en cada pedido nuevo. La dirección exacta es opcional y
+            ayuda al motor de geocoding a colocar el pin en el mapa.
+          </p>
+          {(departamento || provincia || distrito || direccionExacta) && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+              <span className="font-semibold text-primary">Vista previa: </span>
+              <span className="text-foreground/80">
+                {[
+                  direccionExacta.trim(),
+                  distrito,
+                  provincia,
+                  departamento,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "(vacía)"}
+              </span>
+            </div>
+          )}
+        </div>
+
         <Field
           label={
             existing

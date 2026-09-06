@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { withCors } from "@/lib/cors";
 import { getActor } from "@/lib/auth";
 import { notificarRepartidor, notificarRepartidoresDisponibles } from "@/lib/telegram";
+import { geocodeAddress } from "@/lib/geocode";
 import { PedidoConRepartidor } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -51,9 +52,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const actor = getActor(db, req);
 
   const current = db
-    .prepare("SELECT id, empresa_id, estado, repartidor_id FROM pedidos WHERE id = ?")
+    .prepare("SELECT id, empresa_id, estado, repartidor_id, direccion_entrega FROM pedidos WHERE id = ?")
     .get(Number(id)) as
-    | { id: number; empresa_id: number | null; estado: string; repartidor_id: number | null }
+    | {
+      id: number;
+      empresa_id: number | null;
+      estado: string;
+      repartidor_id: number | null;
+      direccion_entrega: string;
+    }
     | undefined;
   if (!current) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
@@ -63,37 +70,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   const body = await req.json();
-  const codigo = String(body.codigo ?? "").trim();
-  const direccion_recojo = String(body.direccion_recojo ?? "").trim();
   const direccion_entrega = String(body.direccion_entrega ?? "").trim();
   const observaciones = body.observaciones ? String(body.observaciones).trim() : null;
   const estado = String(body.estado ?? "pendiente");
   const repartidor_id = body.repartidor_id ? Number(body.repartidor_id) : null;
-  const lat = Number(body.lat ?? -13.0833);
-  const lng = Number(body.lng ?? -76.3833);
 
-  if (!codigo || !direccion_recojo || !direccion_entrega) {
+  if (!direccion_entrega) {
     return withCors(
       NextResponse.json(
-        { error: "Código, dirección de recojo y dirección de entrega son obligatorios" },
+        { error: "La dirección de entrega es obligatoria" },
         { status: 400 }
       )
     );
   }
 
-  // Validar repartidor de la misma empresa (si se proporciona)
+  // Validar que el repartidor exista si se proporciona. Como los repartidores son
+  // externos, no se valida pertenencia a una empresa concreta.
   if (repartidor_id !== null) {
     const rep = db
-      .prepare("SELECT empresa_id FROM repartidores WHERE id = ?")
-      .get(repartidor_id) as { empresa_id: number | null } | undefined;
+      .prepare("SELECT id FROM repartidores WHERE id = ?")
+      .get(repartidor_id) as { id: number } | undefined;
     if (!rep) {
       return withCors(
         NextResponse.json({ error: "Repartidor no encontrado" }, { status: 400 })
-      );
-    }
-    if (actor.tipo === "empresa" && rep.empresa_id !== actor.usuario!.id) {
-      return withCors(
-        NextResponse.json({ error: "Repartidor no pertenece a tu empresa" }, { status: 403 })
       );
     }
   }
@@ -106,25 +105,44 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     : undefined;
   const empresaNombre = empresaRow?.nombre ?? "";
 
+  // Si la dirección de entrega cambió, re-geocodificamos para que el pin del
+  // minimapa se mueva a la nueva ubicación. Si la geocodificación falla,
+  // mantenemos las coordenadas previas.
+  let lat: number | undefined;
+  let lng: number | undefined;
+  if (direccion_entrega !== current.direccion_entrega) {
+    const geo = await geocodeAddress(direccion_entrega);
+    if (geo) {
+      lat = geo.lat;
+      lng = geo.lng;
+    }
+  }
+
+  const setCols = [
+    "empresa_id = ?",
+    "empresa = ?",
+    "direccion_entrega = ?",
+    "observaciones = ?",
+    "estado = ?",
+    "repartidor_id = ?",
+  ];
+  const setVals: (string | number | null)[] = [
+    empresaId,
+    empresaNombre,
+    direccion_entrega,
+    observaciones,
+    estado,
+    repartidor_id,
+  ];
+  if (lat !== undefined && lng !== undefined) {
+    setCols.push("lat = ?", "lng = ?");
+    setVals.push(lat, lng);
+  }
+  setCols.push("actualizado_en = datetime('now')");
+
   const result = db
-    .prepare(
-      `UPDATE pedidos
-       SET codigo = ?, empresa_id = ?, empresa = ?, direccion_recojo = ?, direccion_entrega = ?, observaciones = ?, estado = ?, repartidor_id = ?, lat = ?, lng = ?, actualizado_en = datetime('now')
-       WHERE id = ?`
-    )
-    .run(
-      codigo,
-      empresaId,
-      empresaNombre,
-      direccion_recojo,
-      direccion_entrega,
-      observaciones,
-      estado,
-      repartidor_id,
-      lat,
-      lng,
-      Number(id)
-    );
+    .prepare(`UPDATE pedidos SET ${setCols.join(", ")} WHERE id = ?`)
+    .run(...setVals, Number(id));
 
   if (result.changes === 0) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
@@ -148,7 +166,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (broadcast) {
     const msg = `🆕 Pedido disponible <b>${row.codigo}</b>\n${row.empresa}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
-    await notificarRepartidoresDisponibles(db, msg, { soloEmpresaId: row.empresa_id });
+    // Repartidores externos: broadcast a todos los disponibles.
+    await notificarRepartidoresDisponibles(db, msg);
   } else if (asignoNuevoRepartidor && (prevEstado !== newEstado || prevRep == null)) {
     const msg = `📋 Se te asignó el pedido <b>${row.codigo}</b>\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
     await notificarRepartidor(db, newRep, msg);

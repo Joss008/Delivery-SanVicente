@@ -8,14 +8,19 @@ import { Repartidor } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 function authFetchOptions(actor: ReturnType<typeof getActor>) {
-  if (actor.tipo === "admin") return { where: "", params: [] as SQLInputValue[] };
-  if (actor.tipo === "empresa" && actor.usuario) {
-    return {
-      where: "WHERE empresa_id = ?",
-      params: [actor.usuario.id] as SQLInputValue[],
-    };
+  // Tanto admin como empresa pueden LISTAR repartidores (para ver disponibilidad
+  // y asignarlos a pedidos). Solo el admin puede crear/editar/eliminar.
+  if (actor.tipo === "admin" || actor.tipo === "empresa") {
+    return { where: "", params: [] as SQLInputValue[] };
   }
-  return { where: "", params: [] as SQLInputValue[] };
+  return { where: "WHERE 1 = 0", params: [] as SQLInputValue[] };
+}
+
+function requireAdmin(actor: ReturnType<typeof getActor>) {
+  if (actor.tipo !== "admin") {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
+  return null;
 }
 
 export async function OPTIONS() {
@@ -39,10 +44,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const db = getDb();
   const actor = getActor(db, req);
-
-  if (actor.tipo !== "admin" && actor.tipo !== "empresa") {
-    return withCors(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
-  }
+  const denied = requireAdmin(actor);
+  if (denied) return withCors(denied);
 
   const body = await req.json();
   const nombre = String(body.nombre ?? "").trim();
@@ -60,9 +63,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Empresa: solo puede crear repartidores para sí misma.
-  const empresaId =
-    actor.tipo === "empresa" && actor.usuario ? actor.usuario.id : Number(body.empresa_id) || null;
+  // Repartidores externos: no se asignan a una empresa concreta.
+  // (El campo empresa_id se mantiene en BD por compatibilidad con datos históricos.)
+  const empresaId: number | null = null;
 
   // Las coordenadas (lat/lng) NO se aceptan aquí. La única fuente válida es la PWA
   // mediante POST /api/ubicaciones. Si el cliente envía lat/lng, los ignoramos

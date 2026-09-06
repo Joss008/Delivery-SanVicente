@@ -22,13 +22,13 @@ Cada recurso con CRUD debe implementar las 4 operaciones completas: crear, lista
 
 ## Funcionalidades adicionales
 ### Módulo de repartidores
-CRUD completo de repartidores: crear, listar, editar y eliminar. Cada repartidor tiene nombre, teléfono, estado (disponible/ocupado/inactivo) y ubicación (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
+Los repartidores son **externos al sistema**: no pertenecen a una empresa concreta y son registrados únicamente por el administrador desde el panel de administración. CRUD completo (crear, listar, editar, eliminar) disponible solo para el rol administrador. Cada repartidor tiene nombre, teléfono, estado (disponible/ocupado/inactivo) y ubicación (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones. Las empresas pueden ver la lista de repartidores (para consultar disponibilidad y asignarlos a pedidos), pero no pueden crear, editar ni eliminar repartidores.
 
 ### Módulo de pedidos
-CRUD completo de pedidos: crear, listar, editar y eliminar. Cada pedido tiene cliente, dirección, estado (pendiente/asignado/en_camino/entregado), repartidor asignado (opcional) y ubicación de entrega (lat/lng). Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
+CRUD completo de pedidos: crear, listar, editar y eliminar. Cada pedido tiene un código autogenerado (`PED-NNNN`) que se gestiona internamente sin mostrarse en los formularios de creación/edición, dirección de entrega, estado (pendiente/asignado/en_camino/entregado) y repartidor asignado (opcional, cualquier repartidor externo activo). La **dirección del negocio** (punto de recojo) se toma automáticamente del campo `direccion` registrado en la cuenta de la empresa, por lo que el usuario nunca ingresa coordenadas ni esa dirección. Crear y editar usan modales separados; el listado muestra todos los registros con acciones.
 
 ### Panel de mapa
-Dashboard con mapa (Leaflet + OpenStreetMap) que visualiza la ubicación de los repartidores y los pedidos mediante marcadores, con resumen lateral de repartidores activos y pedidos pendientes. Los datos se refrescan automáticamente cada 15 segundos.
+Dashboard con mapa (Leaflet + OpenStreetMap) que visualiza la ubicación de los repartidores mediante marcadores (los pedidos no se geolocalizan porque su dirección es solo texto). Resumen lateral de repartidores activos y pedidos pendientes. Los datos se refrescan automáticamente cada 15 segundos.
 
 ### Persistencia
 Base de datos SQLite local (vía `node:sqlite`) con esquema y datos de ejemplo, ubicada en `data/reparto.db`.

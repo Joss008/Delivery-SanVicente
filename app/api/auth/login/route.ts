@@ -23,10 +23,20 @@ export async function POST(req: NextRequest) {
   const db = getDb();
   const row = db
     .prepare(
-      "SELECT id, nombre, telefono, estado, password_hash, password_salt FROM repartidores WHERE telefono = ?"
+      "SELECT id, nombre, telefono, estado, password_hash, password_salt, lat, lng, ubicacion_recibida_en FROM repartidores WHERE telefono = ?"
     )
     .get(telefono) as
-    | { id: number; nombre: string; telefono: string; estado: string; password_hash: string | null; password_salt: string | null }
+    | {
+      id: number;
+      nombre: string;
+      telefono: string;
+      estado: string;
+      password_hash: string | null;
+      password_salt: string | null;
+      lat: number;
+      lng: number;
+      ubicacion_recibida_en: string | null;
+    }
     | undefined;
 
   if (!row || !row.password_hash || !row.password_salt || !verifyPassword(password, row.password_hash, row.password_salt)) {
@@ -44,6 +54,9 @@ export async function POST(req: NextRequest) {
         nombre: row.nombre,
         telefono: row.telefono,
         estado: row.estado,
+        lat: row.lat,
+        lng: row.lng,
+        ubicacion_recibida_en: row.ubicacion_recibida_en,
       },
     })
   );

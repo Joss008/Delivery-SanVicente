@@ -60,25 +60,21 @@ export async function notificarRepartidor(
 
 /**
  * Envía una notificación broadcast a todos los repartidores disponibles
- * que tengan telegram_chat_id configurado.
+ * que tengan telegram_chat_id configurado. Como los repartidores son
+ * externos (no pertenecen a una empresa concreta), no se filtra por empresa.
  */
 export async function notificarRepartidoresDisponibles(
   db: DatabaseSync,
-  mensaje: string,
-  opciones: { soloEmpresaId?: number | null } = {}
+  mensaje: string
 ): Promise<number> {
   if (!botConfigurado()) return 0;
 
-  const params: (string | number)[] = [];
-  let where = "WHERE estado = 'disponible' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''";
-  if (opciones.soloEmpresaId != null) {
-    where += " AND empresa_id = ?";
-    params.push(opciones.soloEmpresaId);
-  }
+  const where =
+    "WHERE estado = 'disponible' AND telegram_chat_id IS NOT NULL AND telegram_chat_id != ''";
 
   const rows = db
     .prepare(`SELECT telegram_chat_id FROM repartidores ${where}`)
-    .all(...params) as { telegram_chat_id: string }[];
+    .all() as { telegram_chat_id: string }[];
 
   await Promise.all(rows.map((r) => enviarAlertaTelegram(r.telegram_chat_id, mensaje)));
   return rows.length;

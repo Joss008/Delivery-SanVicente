@@ -32,12 +32,13 @@ export interface UsuarioSesion {
   rol_id: number;
   nombre: string;
   email: string;
+  direccion?: string | null;
 }
 
 export function getUsuarioByToken(db: DatabaseSync, token: string): UsuarioSesion | undefined {
   if (!token) return undefined;
   return db
-    .prepare("SELECT id, rol_id, nombre, email FROM usuarios WHERE token = ?")
+    .prepare("SELECT id, rol_id, nombre, email, direccion FROM usuarios WHERE token = ?")
     .get(token) as UsuarioSesion | undefined;
 }
 

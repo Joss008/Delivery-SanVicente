@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: reparto-canete
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_OPTIONS
+        value: "--experimental-sqlite"
+      - key: DATA_DIR
+        value: /var/data
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: NEXT_PUBLIC_API_BASE_URL
+        fromService:
+          type: web
+          name: reparto-canete
+          property: hostUrl
+    disk:
+      name: reparto-data
+      mountPath: /var/data
+      sizeGB: 1
+    healthCheckPath: /login

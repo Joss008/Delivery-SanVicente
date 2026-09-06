@@ -7,6 +7,32 @@ import { Repartidor, PedidoConRepartidor } from "@/lib/types";
 
 const CAÑETE_CENTER: [number, number] = [-13.0833, -76.3833];
 
+// Cualquier coordenada numérica y finita cuenta como "real" — el geocoder
+// ya se encarga de devolver un fallback duro (centro de San Vicente de
+// Cañete) cuando Nominatim no encuentra la dirección, así que nunca
+// guardamos el placeholder del schema.
+function tieneCoordenadasReales(p: { lat: number; lng: number }) {
+  return Number.isFinite(p.lat) && Number.isFinite(p.lng);
+}
+
+// Filtro regional: descartamos coordenadas a más de ~200 km de Cañete para
+// evitar pines en otros países por GPS de prueba, geocoding erróneo, o
+// datos importados de otra zona.
+const MAX_DISTANCE_KM = 200;
+
+function estaEnZonaCañete(lat: number, lng: number): boolean {
+  const R = 6371;
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const dLat = toRad(lat - CAÑETE_CENTER[0]);
+  const dLon = toRad(lng - CAÑETE_CENTER[1]);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(CAÑETE_CENTER[0])) * Math.cos(toRad(lat)) *
+      Math.sin(dLon / 2) ** 2;
+  const km = 2 * R * Math.asin(Math.sqrt(a));
+  return km <= MAX_DISTANCE_KM;
+}
+
 function repartidorIcon(estado: string) {
   const color =
     estado === "disponible" ? "#059669" : estado === "ocupado" ? "#d97706" : "#94a3b8";
@@ -97,6 +123,8 @@ export default function LeafletMap({
     const puntos: L.LatLngTuple[] = [];
 
     repartidores.forEach((r) => {
+      if (!tieneCoordenadasReales(r)) return;
+      if (!estaEnZonaCañete(r.lat, r.lng)) return;
       L.marker([r.lat, r.lng], { icon: repartidorIcon(r.estado) })
         .bindPopup(
           `<strong>${r.nombre}</strong><br/>${r.estado}<br/><span style="color:#64748b;font-size:11px;">${r.telefono}</span>`
@@ -106,6 +134,11 @@ export default function LeafletMap({
     });
 
     pedidos.forEach((p) => {
+      // Solo mostramos un pin fijo por pedido si tiene coordenadas reales
+      // (geocodificadas al crear/editar) y todavía no se marcó como entregado.
+      if (!tieneCoordenadasReales(p)) return;
+      if (p.estado === "entregado") return;
+      if (!estaEnZonaCañete(p.lat, p.lng)) return;
       L.marker([p.lat, p.lng], { icon: pedidoIcon(p.estado) })
         .bindPopup(
           `<strong>${p.codigo}</strong><br/>${p.empresa}<br/>${p.direccion_entrega}<br/>${p.estado}`

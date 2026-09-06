@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogIn, MapPin, ShieldCheck } from "lucide-react";
+import { LogIn, MapPin } from "lucide-react";
 import { Button, Card, Field, inputClass } from "@/components/ui";
 import { setSession, authFetch } from "@/lib/clientAuth";
 import type { StoredUser } from "@/lib/clientAuth";
@@ -48,16 +48,6 @@ export default function LoginPage() {
     }
   }
 
-  function fillDemo(kind: "admin" | "empresa") {
-    if (kind === "admin") {
-      setEmail("admin@reparto.local");
-      setPassword("admin123");
-    } else {
-      setEmail("casa@reparto.local");
-      setPassword("demo1234");
-    }
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
@@ -85,7 +75,6 @@ export default function LoginPage() {
                 className={inputClass}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@reparto.local"
                 required
               />
             </Field>
@@ -111,30 +100,6 @@ export default function LoginPage() {
               {loading ? "Entrando…" : "Ingresar"}
             </Button>
           </form>
-
-          <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-4">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <ShieldCheck className="h-3.5 w-3.5" /> Cuentas de demostración
-            </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => fillDemo("admin")}
-                className="rounded-md border border-border bg-card px-3 py-2 text-left text-xs transition hover:border-primary/50 hover:bg-primary/5"
-              >
-                <span className="block font-medium text-foreground">Admin</span>
-                <span className="block text-muted-foreground">admin@reparto.local · admin123</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemo("empresa")}
-                className="rounded-md border border-border bg-card px-3 py-2 text-left text-xs transition hover:border-primary/50 hover:bg-primary/5"
-              >
-                <span className="block font-medium text-foreground">Empresa</span>
-                <span className="block text-muted-foreground">casa@reparto.local · demo1234</span>
-              </button>
-            </div>
-          </div>
         </Card>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">

@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   const db = getDb();
   const row = db
     .prepare(
-      "SELECT id, rol_id, nombre, email, password_hash, password_salt FROM usuarios WHERE email = ?"
+      "SELECT id, rol_id, nombre, email, direccion, password_hash, password_salt FROM usuarios WHERE email = ?"
     )
     .get(email) as
     | {
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
         rol_id: number;
         nombre: string;
         email: string;
+        direccion: string | null;
         password_hash: string | null;
         password_salt: string | null;
       }
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
         rol_id: row.rol_id,
         nombre: row.nombre,
         email: row.email,
+        direccion: row.direccion,
       },
     })
   );

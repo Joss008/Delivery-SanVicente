@@ -18,6 +18,13 @@ export async function POST(req: NextRequest) {
     return withCors(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
   }
 
-  db.prepare("UPDATE repartidores SET token = NULL WHERE id = ?").run(repartidor.id);
+  // Al cerrar sesión solo invalidamos el token de sesión. Mantenemos la
+  // última ubicación conocida para que el panel del admin siga mostrando al
+  // repartidor en su última coordenada real. Marcamos también el GPS como
+  // "en pausa" para que el marcador se atenúe hasta el próximo inicio de
+  // sesión + envío desde la PWA.
+  db.prepare(
+    "UPDATE repartidores SET token = NULL, gps_pausado_en = datetime('now') WHERE id = ?"
+  ).run(repartidor.id);
   return withCors(NextResponse.json({ ok: true }));
 }
