@@ -64,26 +64,26 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // - `telegram_chat_id`: si viene (incluso null) se actualiza; si no, conserva.
   // - lat/lng NO se actualizan aquí: la única fuente válida es la PWA.
   const sets: string[] = ["nombre = ?", "telefono = ?"];
-  const params: unknown[] = [nombre, telefono];
+  const values: unknown[] = [nombre, telefono];
   if (estadoEnBody) {
     sets.push("estado = ?");
-    params.push(estado);
+    values.push(estado);
   }
   if (telegram_chat_id !== undefined) {
     sets.push("telegram_chat_id = ?");
-    params.push(telegram_chat_id);
+    values.push(telegram_chat_id);
   }
   if (password) {
     const { hash, salt } = hashPassword(password);
     sets.push("password_hash = ?", "password_salt = ?");
-    params.push(hash, salt);
+    values.push(hash, salt);
   }
   sets.push("actualizado_en = datetime('now')");
-  params.push(Number(id));
+  values.push(Number(id));
 
   const result = db
     .prepare(`UPDATE repartidores SET ${sets.join(", ")} WHERE id = ?`)
-    .run(...params);
+    .run(...values);
 
   if (result.changes === 0) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
