@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SQLInputValue } from "node:sqlite";
 import { getDb, REPARTIDOR_PUBLIC_COLUMNS } from "@/lib/db";
 import { withCors } from "@/lib/cors";
 import { getActor, hashPassword } from "@/lib/auth";
@@ -64,7 +65,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   // - `telegram_chat_id`: si viene (incluso null) se actualiza; si no, conserva.
   // - lat/lng NO se actualizan aquí: la única fuente válida es la PWA.
   const sets: string[] = ["nombre = ?", "telefono = ?"];
-  const values: unknown[] = [nombre, telefono];
+  const values: SQLInputValue[] = [nombre, telefono];
   if (estadoEnBody) {
     sets.push("estado = ?");
     values.push(estado);
