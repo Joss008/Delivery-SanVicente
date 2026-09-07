@@ -44,6 +44,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = await req.json();
   const nombre = String(body.nombre ?? "").trim();
   const telefono = String(body.telefono ?? "").trim();
+  const estadoEnBody = body.estado !== undefined;
   const estado = String(body.estado ?? "disponible");
   const telegram_chat_id =
     body.telegram_chat_id === null || body.telegram_chat_id === undefined
@@ -57,28 +58,32 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     );
   }
 
-  // Nota: lat/lng NO se actualizan aquí. La única fuente válida de coordenadas
-  // es la PWA (POST /api/ubicaciones). Si llegan en el body, se ignoran.
-  // telegram_chat_id: si viene en el body (incluso null) se actualiza;
-  // si la clave no viene, se conserva el valor previo.
-  let result;
-  const setTelegramClause = telegram_chat_id !== undefined ? ", telegram_chat_id = ?" : "";
-  const telegramParam: (string | null)[] = telegram_chat_id !== undefined ? [telegram_chat_id] : [];
-
+  // Construimos el UPDATE dinámicamente para no pisar columnas que el cliente
+  // no está enviando en esta versión del formulario (p.ej. `estado`).
+  // - `estado`: solo se actualiza si viene en el body; si no, conserva el valor actual.
+  // - `telegram_chat_id`: si viene (incluso null) se actualiza; si no, conserva.
+  // - lat/lng NO se actualizan aquí: la única fuente válida es la PWA.
+  const sets: string[] = ["nombre = ?", "telefono = ?"];
+  const params: unknown[] = [nombre, telefono];
+  if (estadoEnBody) {
+    sets.push("estado = ?");
+    params.push(estado);
+  }
+  if (telegram_chat_id !== undefined) {
+    sets.push("telegram_chat_id = ?");
+    params.push(telegram_chat_id);
+  }
   if (password) {
     const { hash, salt } = hashPassword(password);
-    result = db
-      .prepare(
-        `UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?, password_hash = ?, password_salt = ?${setTelegramClause}, actualizado_en = datetime('now') WHERE id = ?`
-      )
-      .run(nombre, telefono, estado, hash, salt, ...telegramParam, Number(id));
-  } else {
-    result = db
-      .prepare(
-        `UPDATE repartidores SET nombre = ?, telefono = ?, estado = ?${setTelegramClause}, actualizado_en = datetime('now') WHERE id = ?`
-      )
-      .run(nombre, telefono, estado, ...telegramParam, Number(id));
+    sets.push("password_hash = ?", "password_salt = ?");
+    params.push(hash, salt);
   }
+  sets.push("actualizado_en = datetime('now')");
+  params.push(Number(id));
+
+  const result = db
+    .prepare(`UPDATE repartidores SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...params);
 
   if (result.changes === 0) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));

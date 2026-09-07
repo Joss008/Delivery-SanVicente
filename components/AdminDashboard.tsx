@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button, Card, Field, inputClass, Modal } from "@/components/ui";
+import { Combobox } from "@/components/ui/combobox";
 import { authFetch } from "@/lib/clientAuth";
 import type { Usuario } from "@/lib/types";
 import {
@@ -18,7 +19,6 @@ import {
   getProvincias,
   getDistritos,
 } from "@/lib/peru-ubigeo";
-import EmpresaLocationMap from "@/components/EmpresaLocationMap";
 
 interface AdminDashboardProps {
   currentAdmin: { id: number; nombre: string; email: string };
@@ -324,89 +324,6 @@ function EmpresaForm({
           />
         </Field>
 
-        <div className="space-y-2">
-          <p className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5" /> Ubicación del negocio (Perú)
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Departamento">
-              <select
-                className={inputClass}
-                value={departamento}
-                onChange={(e) => setDepartamento(e.target.value)}
-                required
-              >
-                <option value="">Selecciona…</option>
-                {departamentos.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Provincia">
-              <select
-                className={inputClass}
-                value={provincia}
-                onChange={(e) => setProvincia(e.target.value)}
-                disabled={!departamento}
-                required
-              >
-                <option value="">Selecciona…</option>
-                {provincias.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Distrito">
-              <select
-                className={inputClass}
-                value={distrito}
-                onChange={(e) => setDistrito(e.target.value)}
-                disabled={!provincia}
-                required
-              >
-                <option value="">Selecciona…</option>
-                {distritos.map((d) => (
-                  <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <Field label="Dirección exacta (calle, avenida, número)">
-            <input
-              className={inputClass}
-              value={direccionExacta}
-              placeholder="Av. Mariscal Benavides 450"
-              onChange={(e) => setDireccionExacta(e.target.value)}
-            />
-          </Field>
-          <EmpresaLocationMap
-            departamento={departamento}
-            provincia={provincia}
-            distrito={distrito}
-            direccionExacta={direccionExacta}
-          />
-          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            La ubicación registrada se usará automáticamente como punto de
-            recojo en cada pedido nuevo. La dirección exacta es opcional y
-            ayuda al motor de geocoding a colocar el pin en el mapa.
-          </p>
-          {(departamento || provincia || distrito || direccionExacta) && (
-            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
-              <span className="font-semibold text-primary">Vista previa: </span>
-              <span className="text-foreground/80">
-                {[
-                  direccionExacta.trim(),
-                  distrito,
-                  provincia,
-                  departamento,
-                ]
-                  .filter(Boolean)
-                  .join(", ") || "(vacía)"}
-              </span>
-            </div>
-          )}
-        </div>
-
         <Field
           label={
             existing
@@ -423,6 +340,63 @@ function EmpresaForm({
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
         </Field>
+
+        <div className="space-y-2">
+          <p className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+            <MapPin className="h-3.5 w-3.5" /> Ubicación del negocio (Perú)
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Departamento">
+              <Combobox
+                value={departamento}
+                onChange={setDepartamento}
+                options={departamentos}
+                placeholder="Selecciona…"
+              />
+            </Field>
+            <Field label="Provincia">
+              <Combobox
+                value={provincia}
+                onChange={setProvincia}
+                options={provincias}
+                placeholder="Selecciona…"
+                disabled={!departamento}
+              />
+            </Field>
+            <Field label="Distrito">
+              <Combobox
+                value={distrito}
+                onChange={setDistrito}
+                options={distritos}
+                placeholder="Selecciona…"
+                disabled={!provincia}
+              />
+            </Field>
+          </div>
+          <Field label="Dirección exacta (calle, avenida, número)">
+            <input
+              className={inputClass}
+              value={direccionExacta}
+              placeholder="Av. Mariscal Benavides 450"
+              onChange={(e) => setDireccionExacta(e.target.value)}
+            />
+          </Field>
+          {(departamento || provincia || distrito || direccionExacta) && (
+            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
+              <span className="font-semibold text-primary">Vista previa: </span>
+              <span className="text-foreground/80">
+                {[
+                  direccionExacta.trim(),
+                  distrito,
+                  provincia,
+                  departamento,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "(vacía)"}
+              </span>
+            </div>
+          )}
+        </div>
 
         {error && (
           <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

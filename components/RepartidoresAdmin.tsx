@@ -13,9 +13,7 @@ import {
 import { Button, Card, Field, inputClass, Modal } from "@/components/ui";
 import { Badge, ESTADO_REPARTIDOR } from "@/components/badges";
 import { authFetch } from "@/lib/clientAuth";
-import type { Repartidor, EstadoRepartidor } from "@/lib/types";
-
-const ESTADOS_REPARTIDOR: EstadoRepartidor[] = ["disponible", "ocupado", "inactivo"];
+import type { Repartidor } from "@/lib/types";
 
 export default function RepartidoresAdmin() {
   const [repartidores, setRepartidores] = useState<Repartidor[]>([]);
@@ -208,7 +206,6 @@ function RepartidorForm({
     nombre: "",
     telefono: "",
     password: "",
-    estado: "disponible",
     telegram_chat_id: "",
   });
   const [saving, setSaving] = useState(false);
@@ -222,7 +219,6 @@ function RepartidorForm({
         nombre: existing.nombre,
         telefono: existing.telefono,
         password: "",
-        estado: existing.estado,
         telegram_chat_id: existing.telegram_chat_id ?? "",
       });
     } else {
@@ -230,7 +226,6 @@ function RepartidorForm({
         nombre: "",
         telefono: "",
         password: "",
-        estado: "disponible",
         telegram_chat_id: "",
       });
     }
@@ -246,7 +241,6 @@ function RepartidorForm({
       const body: Record<string, unknown> = {
         nombre: form.nombre,
         telefono: form.telefono,
-        estado: form.estado,
         telegram_chat_id: form.telegram_chat_id.trim() || null,
       };
       if (form.password) body.password = form.password;
@@ -301,19 +295,6 @@ function RepartidorForm({
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
         </Field>
-        <Field label="Estado">
-          <select
-            className={inputClass}
-            value={form.estado}
-            onChange={(e) => setForm({ ...form, estado: e.target.value })}
-          >
-            {ESTADOS_REPARTIDOR.map((s) => (
-              <option key={s} value={s}>
-                {ESTADO_REPARTIDOR[s].label}
-              </option>
-            ))}
-          </select>
-        </Field>
         <div className="space-y-2">
           <p className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
             <MessageCircle className="h-3.5 w-3.5" /> Chat ID de Telegram (opcional)
@@ -325,17 +306,7 @@ function RepartidorForm({
             inputMode="numeric"
             onChange={(e) => setForm({ ...form, telegram_chat_id: e.target.value })}
           />
-          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            Con un chat_id configurado, este repartidor recibirá alertas push por
-            Telegram cada vez que aparezca un pedido disponible o se le asigne uno.
-            Pídele que escriba <code className="font-mono">/start</code> al bot y
-            comparta el ID (lo entrega @userinfobot).
-          </p>
         </div>
-        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Los repartidores son externos: no pertenecen a una empresa concreta y
-          cualquier pedido pendiente puede ser aceptado por ellos.
-        </p>
         {error && (
           <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             {error}

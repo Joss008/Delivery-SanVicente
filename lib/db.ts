@@ -181,7 +181,9 @@ function ensureDefaultPasswords(database: DatabaseSync) {
 }
 
 function seed(database: DatabaseSync) {
-  // Admin por defecto
+  // Solo sembramos la cuenta administradora por defecto. Las empresas y los
+  // repartidores se crean desde el panel para mantener la base de producción
+  // limpia de datos de demo.
   const adminCount = database
     .prepare("SELECT COUNT(*) AS n FROM usuarios WHERE rol_id = ?")
     .get(ROL_ADMIN) as { n: number };
@@ -193,127 +195,53 @@ function seed(database: DatabaseSync) {
       )
       .run(ROL_ADMIN, "Administrador", "admin@reparto.local", hash, salt);
   }
+}
 
-  // Empresas demo: una por cada empresa del seed histórico de pedidos.
-  const seedEmpresas: { nombre: string; email: string; password: string; direccion: string }[] = [
-    {
-      nombre: "La Casa del Pollo",
-      email: "casa@reparto.local",
-      password: "demo1234",
-      direccion: "Av. Mariscal Benavides 450, San Vicente de Cañete",
-    },
-    {
-      nombre: "Parrillas El Fogón",
-      email: "fogon@reparto.local",
-      password: "demo1234",
-      direccion: "Av. San Martín 780, San Vicente de Cañete",
-    },
-    {
-      nombre: "Menú Express Cañete",
-      email: "menu@reparto.local",
-      password: "demo1234",
-      direccion: "Jr. Lima 320, San Vicente de Cañete",
-    },
-    {
-      nombre: "Chifa Dragón Dorado",
-      email: "dragon@reparto.local",
-      password: "demo1234",
-      direccion: "Av. Arica 210, San Vicente de Cañete",
-    },
+// Limpia los registros demo que pudieron quedar en bases existentes antes de
+// pasar a producción. Es idempotente: si los datos ya no están, no hace nada.
+// La identificación es por campos únicos del seed (email / teléfono / código),
+// así que no toca empresas, repartidores ni pedidos reales creados por el admin.
+function purgeDemoData(database: DatabaseSync) {
+  const demoEmpresaEmails = [
+    "casa@reparto.local",
+    "fogon@reparto.local",
+    "menu@reparto.local",
+    "dragon@reparto.local",
   ];
-  const existingEmpresaNames = new Set(
-    (database.prepare("SELECT nombre FROM usuarios WHERE rol_id = ?").all(ROL_EMPRESA) as {
-      nombre: string;
-    }[]).map((u) => u.nombre)
-  );
-  const insertEmpresa = database.prepare(
-    "INSERT INTO usuarios (rol_id, nombre, email, password_hash, password_salt, direccion) VALUES (?, ?, ?, ?, ?, ?)"
-  );
-  for (const e of seedEmpresas) {
-    if (!existingEmpresaNames.has(e.nombre)) {
-      const { hash, salt } = hashPassword(e.password);
-      insertEmpresa.run(ROL_EMPRESA, e.nombre, e.email, hash, salt, e.direccion);
-    }
-  }
-
-  // Repartidores demo
-  const repCount = database.prepare("SELECT COUNT(*) AS n FROM repartidores").get() as { n: number };
-  if (repCount.n === 0) {
-    const insertRep = database.prepare(
-      "INSERT INTO repartidores (empresa_id, nombre, telefono, estado) VALUES (?, ?, ?, ?)"
-    );
-
-    // Repartidores externos: NO pertenecen a una empresa concreta. La columna
-    // `empresa_id` se conserva por compatibilidad pero queda NULL para los
-    // nuevos registros. Coordenadas vacías: la única fuente válida de lat/lng
-    // es la PWA (endpoint /api/ubicaciones).
-    const repartidores: [string, string, string][] = [
-      ["Carlos Mendoza", "999111222", "disponible"],
-      ["Luis Quispe", "999333444", "ocupado"],
-      ["Ana Torres", "999555666", "disponible"],
-      ["Pedro Rojas", "999777888", "inactivo"],
-    ];
-    for (const [nombre, telefono, estado] of repartidores) {
-      insertRep.run(null, nombre, telefono, estado);
-    }
-  } else {
-    // Backfill: repartidores externos — limpiamos cualquier asignación a una
-    // empresa concreta que pueda quedar en bases existentes.
-    database.exec("UPDATE repartidores SET empresa_id = NULL");
-  }
-
-  const pedCount = database.prepare("SELECT COUNT(*) AS n FROM pedidos").get() as { n: number };
-  if (pedCount.n > 0) {
-    // Backfill: vincular pedidos existentes a la empresa cuyo nombre coincide con `empresa`.
-    const pedidosSinEmpresa = database
-      .prepare("SELECT id, empresa FROM pedidos WHERE empresa_id IS NULL")
-      .all() as { id: number; empresa: string }[];
-    const empresas = database
-      .prepare("SELECT id, nombre FROM usuarios WHERE rol_id = ?")
-      .all(ROL_EMPRESA) as { id: number; nombre: string }[];
-    const empresaByNombre = new Map(empresas.map((e) => [e.nombre, e.id]));
-    const fallback = empresas[0]?.id ?? null;
-    for (const p of pedidosSinEmpresa) {
-      const empId = empresaByNombre.get(p.empresa) ?? fallback;
-      if (empId !== null) {
-        database.prepare("UPDATE pedidos SET empresa_id = ? WHERE id = ?").run(empId, p.id);
-      }
-    }
-    // Backfill: si una empresa aún no tiene dirección de local, tomar la del primer
-    // pedido histórico asociado (su `direccion_recojo` representaba su dirección).
-    const empresasSinDireccion = database
-      .prepare("SELECT id FROM usuarios WHERE rol_id = ? AND (direccion IS NULL OR direccion = '')")
-      .all(ROL_EMPRESA) as { id: number }[];
-    const primeraDireccionStmt = database.prepare(
-      "SELECT direccion_recojo FROM pedidos WHERE empresa_id = ? AND direccion_recojo IS NOT NULL AND direccion_recojo != '' ORDER BY id ASC LIMIT 1"
-    );
-    for (const e of empresasSinDireccion) {
-      const row = primeraDireccionStmt.get(e.id) as { direccion_recojo: string } | undefined;
-      if (row?.direccion_recojo) {
-        database.prepare("UPDATE usuarios SET direccion = ? WHERE id = ?").run(row.direccion_recojo, e.id);
-      }
-    }
-    return;
-  }
-
-  const empresas = database
-    .prepare("SELECT id, nombre FROM usuarios WHERE rol_id = ?")
-    .all(ROL_EMPRESA) as { id: number; nombre: string }[];
-  const empresaByNombre = new Map(empresas.map((e) => [e.nombre, e.id]));
-
-  const insertPed = database.prepare(
-    `INSERT INTO pedidos (codigo, empresa_id, empresa, direccion_recojo, direccion_entrega, observaciones, estado, repartidor_id, lat, lng)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
-  const pedidos: [string, string, string, string, string | null, string, number | null, number, number][] = [
-    ["PED-1001", "La Casa del Pollo", "Av. Mariscal Benavides 450", "Jr. Grau 210", "2 pollos a la brasa + papas", "entregado", 1, -13.0795, -76.3812],
-    ["PED-1002", "Parrillas El Fogón", "Av. San Martín 780", "Calle Bolívar 145", "Parrillada familiar y gaseosa 1.5L", "asignado", 2, -13.0881, -76.3844],
-    ["PED-1003", "Menú Express Cañete", "Jr. Lima 320", "Av. 28 de Julio 900", null, "pendiente", null, -13.0932, -76.3755],
-    ["PED-1004", "Chifa Dragón Dorado", "Av. Arica 210", "Jr. Ayacucho 512", "Chaufa de pollo y chicha morada", "en_camino", 3, -13.0827, -76.3711],
+  const demoRepartidorTelefonos = [
+    "999111222",
+    "999333444",
+    "999555666",
+    "999777888",
   ];
-  for (const [codigo, empresaNombre, recojo, entrega, obs, estado, repartidor_id, lat, lng] of pedidos) {
-    const empresaId = empresaByNombre.get(empresaNombre) ?? null;
-    insertPed.run(codigo, empresaId, empresaNombre, recojo, entrega, obs, estado, repartidor_id, lat, lng);
+  const demoPedidoCodigos = ["PED-1001", "PED-1002", "PED-1003", "PED-1004"];
+
+  const placeholders = (n: number) => new Array(n).fill("?").join(",");
+
+  // 1) Pedidos demo (los borramos primero por claridad; los pedidos.empresa_id
+  //    tienen ON DELETE CASCADE, pero queremos que el borrado sea explícito).
+  const pedResult = database
+    .prepare(`DELETE FROM pedidos WHERE codigo IN (${placeholders(demoPedidoCodigos.length)})`)
+    .run(...demoPedidoCodigos);
+
+  // 2) Empresas demo (rol_id = 2 para no tocar al admin).
+  const empResult = database
+    .prepare(
+      `DELETE FROM usuarios WHERE rol_id = ? AND email IN (${placeholders(demoEmpresaEmails.length)})`
+    )
+    .run(ROL_EMPRESA, ...demoEmpresaEmails);
+
+  // 3) Repartidores demo.
+  const repResult = database
+    .prepare(
+      `DELETE FROM repartidores WHERE telefono IN (${placeholders(demoRepartidorTelefonos.length)})`
+    )
+    .run(...demoRepartidorTelefonos);
+
+  if (pedResult.changes || empResult.changes || repResult.changes) {
+    console.log(
+      `[db] Purga demo: ${empResult.changes} empresa(s), ${repResult.changes} repartidor(es), ${pedResult.changes} pedido(s) eliminados.`
+    );
   }
 }
 
@@ -323,6 +251,7 @@ export function getDb(): DatabaseSync {
   db = new DatabaseSync(DB_PATH);
   ensureSchema(db);
   seed(db);
+  purgeDemoData(db);
   ensureDefaultPasswords(db);
 
   // Backfill en segundo plano: re-geocodifica pedidos cuyas coordenadas siguen
