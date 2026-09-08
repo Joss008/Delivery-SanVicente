@@ -6,6 +6,7 @@ import {
   Bike,
   Building2,
   Clock,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   MapPin,
@@ -13,6 +14,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Trash2,
   TrendingUp,
   Users,
@@ -20,20 +22,23 @@ import {
 import MapView from "@/components/MapView";
 import MapLegendCard from "@/components/MapLegendCard";
 import AdminDashboard from "@/components/AdminDashboard";
+import AntifraudPanel from "@/components/AntifraudPanel";
 import RepartidoresAdmin from "@/components/RepartidoresAdmin";
 import { Modal, Field, inputClass, Button, Card } from "@/components/ui";
 import { Badge, ESTADO_REPARTIDOR, ESTADO_PEDIDO } from "@/components/badges";
+import { OtpCard } from "@/components/OtpCard";
 import { cn } from "@/lib/utils";
 import { authFetch, clearSession, getStoredUser, getToken } from "@/lib/clientAuth";
 import {
   Repartidor,
   PedidoConRepartidor,
+  PedidoDetalle,
   EstadoRepartidor,
   EstadoPedido,
 } from "@/lib/types";
 
 const ESTADOS_REPARTIDOR: EstadoRepartidor[] = ["disponible", "ocupado", "inactivo"];
-const ESTADOS_PEDIDO: EstadoPedido[] = ["pendiente", "asignado", "en_camino", "entregado"];
+const ESTADOS_PEDIDO: EstadoPedido[] = ["pendiente", "asignado", "en_camino", "entregado", "disputado"];
 
 type Tab = "mapa" | "pedidos";
 
@@ -139,11 +144,12 @@ function ShellHeader({
   );
 }
 
-type AdminTab = "empresas" | "repartidores";
+type AdminTab = "empresas" | "repartidores" | "antifraude";
 
 const ADMIN_NAV: { key: AdminTab; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "empresas", label: "Empresas", icon: Building2 },
   { key: "repartidores", label: "Repartidores", icon: Bike },
+  { key: "antifraude", label: "Antifraude", icon: ShieldAlert },
 ];
 
 const ADMIN_PAGE_META: Record<AdminTab, { title: string; description: string }> = {
@@ -154,6 +160,10 @@ const ADMIN_PAGE_META: Record<AdminTab, { title: string; description: string }> 
   repartidores: {
     title: "Repartidores externos",
     description: "Registra y administra los motorizados externos del sistema.",
+  },
+  antifraude: {
+    title: "Antifraude",
+    description: "Repartidores en observación e indicadores de intentos y reclamos.",
   },
 };
 
@@ -205,6 +215,7 @@ function AdminShell({
       <main className="mx-auto max-w-6xl px-6 py-8 lg:px-8">
         {tab === "empresas" && <AdminDashboard currentAdmin={currentAdmin} />}
         {tab === "repartidores" && <RepartidoresAdmin />}
+        {tab === "antifraude" && <AntifraudPanel />}
       </main>
     </div>
   );
@@ -224,6 +235,9 @@ function EmpresaShell({
 
   const [pedCreateOpen, setPedCreateOpen] = useState(false);
   const [pedEdit, setPedEdit] = useState<PedidoConRepartidor | null>(null);
+  const [pedCreated, setPedCreated] = useState<PedidoConRepartidor | null>(null);
+  const [pedDetalleOtp, setPedDetalleOtp] = useState<PedidoConRepartidor | null>(null);
+  const [pedDetalleReclamo, setPedDetalleReclamo] = useState<PedidoConRepartidor | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -443,39 +457,103 @@ function EmpresaShell({
                       <th className="px-5 py-3 font-medium">Recojo → Entrega</th>
                       <th className="px-5 py-3 font-medium">Motorizado</th>
                       <th className="px-5 py-3 font-medium">Estado</th>
+                      <th className="px-5 py-3 font-medium">Verificación</th>
                       <th className="px-5 py-3 font-medium text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pedidos.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-5 py-10 text-center text-muted-foreground">
+                        <td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">
                           Aún no tienes pedidos. Crea el primero desde "Nuevo pedido".
                         </td>
                       </tr>
                     )}
-                    {pedidos.map((p) => (
-                      <tr key={p.id} className="border-b border-border last:border-0 transition hover:bg-muted/40">
-                        <td className="px-5 py-3 font-medium text-foreground">{p.codigo}</td>
-                        <td className="px-5 py-3 text-muted-foreground">
-                          {p.direccion_recojo} → {p.direccion_entrega}
-                        </td>
-                        <td className="px-5 py-3 text-muted-foreground">{p.repartidor_nombre ?? "Sin asignar"}</td>
-                        <td className="px-5 py-3">
-                          <Badge value={p.estado} map={ESTADO_PEDIDO} />
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex justify-end gap-1">
-                            <Button variant="ghost" onClick={() => setPedEdit(p)} aria-label="Editar">
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" onClick={() => handleDeletePedido(p.id)} aria-label="Eliminar">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {pedidos.map((p) => {
+                      const bloqueadoPorIntentos = (p.otp_intentos ?? 0) >= 3;
+                      const expirado =
+                        p.otp_expira_en != null &&
+                        new Date(p.otp_expira_en.replace(" ", "T") + "Z").getTime() < Date.now();
+                      const sospechoso = !!p.alerta_motivo;
+                      const mostrarOtp =
+                        p.otp_codigo && p.estado !== "entregado" && p.estado !== "disputado";
+                      return (
+                        <tr
+                          key={p.id}
+                          className="border-b border-border last:border-0 transition hover:bg-muted/40"
+                        >
+                          <td className="px-5 py-3 font-medium text-foreground">{p.codigo}</td>
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {p.direccion_recojo} → {p.direccion_entrega}
+                          </td>
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {p.repartidor_nombre ?? "Sin asignar"}
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex flex-col gap-1">
+                              <Badge value={p.estado} map={ESTADO_PEDIDO} />
+                              {p.reclamado_en && (
+                                <span className="inline-flex w-fit items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+                                  <ShieldAlert className="h-3 w-3" /> Reclamado
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex flex-col gap-1">
+                              {mostrarOtp ? (
+                                <button
+                                  onClick={() => setPedDetalleOtp(p)}
+                                  className="inline-flex w-fit items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-foreground transition hover:bg-muted"
+                                  type="button"
+                                >
+                                  <KeyRound className="h-3 w-3" /> Ver código
+                                </button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  {p.otp_validado_en ? `OK · ${p.otp_validado_en}` : "—"}
+                                </span>
+                              )}
+                              <div className="flex flex-wrap gap-1">
+                                {bloqueadoPorIntentos && (
+                                  <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+                                    Bloqueado
+                                  </span>
+                                )}
+                                {expirado && !bloqueadoPorIntentos && mostrarOtp && (
+                                  <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 ring-1 ring-inset ring-slate-500/20">
+                                    Expirado
+                                  </span>
+                                )}
+                                {sospechoso && (
+                                  <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                                    Alerta
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-3">
+                            <div className="flex justify-end gap-1">
+                              {p.estado === "entregado" && !p.reclamado_en && (
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setPedDetalleReclamo(p)}
+                                >
+                                  No recibí
+                                </Button>
+                              )}
+                              <Button variant="ghost" onClick={() => setPedEdit(p)} aria-label="Editar">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" onClick={() => handleDeletePedido(p.id)} aria-label="Eliminar">
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </Card>
@@ -488,6 +566,7 @@ function EmpresaShell({
         open={pedCreateOpen}
         onClose={() => setPedCreateOpen(false)}
         onSaved={refresh}
+        onCreated={(p) => setPedCreated(p)}
         existing={null}
         repartidores={repartidores}
         localDireccion={localDireccion}
@@ -496,9 +575,57 @@ function EmpresaShell({
         open={!!pedEdit}
         onClose={() => setPedEdit(null)}
         onSaved={refresh}
+        onCreated={undefined}
         existing={pedEdit}
         repartidores={repartidores}
         localDireccion={localDireccion}
+      />
+
+      <Modal
+        title={`Pedido creado · ${pedCreated?.codigo ?? ""}`}
+        open={!!pedCreated}
+        onClose={() => setPedCreated(null)}
+      >
+        {pedCreated && (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Guarda el código de verificación y compártelo con tu cliente. El
+              repartidor deberá ingresarlo al momento de entregar el pedido.
+            </p>
+            <OtpCard
+              codigo={pedCreated.otp_codigo ?? "------"}
+              expiraEn={pedCreated.otp_expira_en}
+              intentos={pedCreated.otp_intentos ?? 0}
+            />
+            <div className="flex justify-end">
+              <Button onClick={() => setPedCreated(null)}>Entendido</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={`Código de verificación · ${pedDetalleOtp?.codigo ?? ""}`}
+        open={!!pedDetalleOtp}
+        onClose={() => setPedDetalleOtp(null)}
+      >
+        {pedDetalleOtp && (
+          <OtpCard
+            codigo={pedDetalleOtp.otp_codigo ?? "------"}
+            expiraEn={pedDetalleOtp.otp_expira_en}
+            intentos={pedDetalleOtp.otp_intentos ?? 0}
+            alertaMotivo={pedDetalleOtp.alerta_motivo}
+          />
+        )}
+      </Modal>
+
+      <ReclamoModal
+        pedido={pedDetalleReclamo}
+        onClose={() => setPedDetalleReclamo(null)}
+        onSent={async () => {
+          setPedDetalleReclamo(null);
+          await refresh();
+        }}
       />
     </div>
   );
@@ -554,6 +681,7 @@ function PedidoForm({
   open,
   onClose,
   onSaved,
+  onCreated,
   existing,
   repartidores,
   localDireccion,
@@ -561,6 +689,7 @@ function PedidoForm({
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onCreated?: ((p: PedidoConRepartidor) => void) | undefined;
   existing: PedidoConRepartidor | null;
   repartidores: Repartidor[];
   localDireccion?: string | null;
@@ -616,7 +745,11 @@ function PedidoForm({
         setError(data.error ?? "No se pudo guardar el pedido");
         return;
       }
+      const nuevoPedido = data as PedidoConRepartidor;
       onClose();
+      if (!existing && onCreated && nuevoPedido.otp_codigo) {
+        onCreated(nuevoPedido);
+      }
       onSaved();
     } finally {
       setSaving(false);
@@ -626,6 +759,13 @@ function PedidoForm({
   return (
     <Modal title={existing ? "Editar pedido" : "Nuevo pedido"} open={open} onClose={onClose}>
       <form onSubmit={handleSubmit} className="space-y-4">
+        {existing && existing.otp_codigo && existing.estado !== "entregado" && existing.estado !== "disputado" && (
+          <OtpCard
+            codigo={existing.otp_codigo}
+            expiraEn={existing.otp_expira_en}
+            intentos={existing.otp_intentos ?? 0}
+          />
+        )}
         {!existing && (
           <>
             <Field label="Dirección del negocio (recojo)">
@@ -686,6 +826,81 @@ function PedidoForm({
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={saving}>{saving ? "Guardando…" : "Guardar"}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ReclamoModal({
+  pedido,
+  onClose,
+  onSent,
+}: {
+  pedido: PedidoConRepartidor | null;
+  onClose: () => void;
+  onSent: () => void | Promise<void>;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pedido) {
+      setMotivo("");
+      setError(null);
+    }
+  }, [pedido]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pedido) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await authFetch(`/api/pedidos/${pedido.id}/reclamar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ motivo }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo abrir la disputa");
+        return;
+      }
+      await onSent();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={`Reclamo · ${pedido?.codigo ?? ""}`} open={!!pedido} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Indícale al equipo qué pasó. Esto abrirá una disputa y el pedido pasará a estado "En disputa" para que el administrador lo revise.
+        </p>
+        <Field label="Motivo del reclamo">
+          <textarea
+            className={inputClass}
+            value={motivo}
+            rows={3}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ej. el cliente dice que nunca recibió el pedido..."
+          />
+        </Field>
+        {error && (
+          <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? "Enviando…" : "Abrir disputa"}
+          </Button>
         </div>
       </form>
     </Modal>

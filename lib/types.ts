@@ -4,7 +4,7 @@ export type Rol = "admin" | "empresa" | "repartidor";
 
 export type EstadoRepartidor = "disponible" | "ocupado" | "inactivo";
 
-export type EstadoPedido = "pendiente" | "asignado" | "en_camino" | "entregado";
+export type EstadoPedido = "pendiente" | "asignado" | "en_camino" | "entregado" | "disputado";
 
 export interface Usuario {
   id: number;
@@ -61,8 +61,51 @@ export interface Pedido {
   lng: number;
   creado_en: string;
   actualizado_en: string;
+  // --- Verificación OTP ---
+  /** Código de 6 dígitos que el repartidor debe pedir al cliente al entregar. */
+  otp_codigo: string | null;
+  otp_expira_en: string | null;
+  otp_intentos: number;
+  otp_validado_en: string | null;
+  otp_validado_por: number | null;
+  /** Coordenadas GPS del repartidor al momento de marcar la entrega. */
+  entrega_lat: number | null;
+  entrega_lng: number | null;
+  aceptado_en: string | null;
+  // --- Disputa ("no recibí el pedido") ---
+  reclamado_en: string | null;
+  reclamado_por: number | null;
+  reclamo_motivo: string | null;
+  // --- Banderas antifraude (no bloquean, solo alertan) ---
+  alerta_distancia_km: number | null;
+  alerta_tiempo_seg: number | null;
+  alerta_motivo: string | null;
 }
 
 export interface PedidoConRepartidor extends Pedido {
   repartidor_nombre: string | null;
+}
+
+export interface PedidoDetalle extends PedidoConRepartidor {
+  /** Eventos de auditoría; sólo se devuelven a admin/empresa. */
+  eventos: PedidoEvento[];
+}
+
+export interface PedidoEvento {
+  id: number;
+  pedido_id: number;
+  tipo: string;
+  actor_tipo: string | null;
+  actor_id: number | null;
+  detalle: string | null;
+  creado_en: string;
+}
+
+export interface RepartidorAlerta {
+  repartidor_id: number;
+  entregas_totales: number;
+  entregas_sospechosas: number;
+  reclamos_totales: number;
+  ultima_alerta_en: string | null;
+  actualizado_en: string;
 }

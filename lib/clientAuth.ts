@@ -50,5 +50,20 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
     headers.set("Content-Type", "application/json");
   }
   const res = await fetch(input, { ...init, headers });
+
+  // Si el servidor rechaza la sesión, el token en localStorage ya no es
+  // válido (BD rotada, admin recreado, etc.). Limpiamos y mandamos a login
+  // para que el usuario no se quede en una pantalla rota. Excluimos el
+  // endpoint de login para no entrar en bucle cuando las credenciales son
+  // incorrectas (ahí el 401 es esperado y debe mostrarse como error).
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : "";
+  const isLoginCall = url.includes("/api/auth/");
+  if (res.status === 401 && token && !isLoginCall) {
+    clearSession();
+    if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
+  }
+
   return res;
 }

@@ -11,6 +11,7 @@ export const ESTADO_PEDIDO: Record<string, { label: string; color: string }> = {
   asignado: { label: "Asignado", color: "bg-blue-50 text-blue-700 ring-blue-600/20" },
   en_camino: { label: "En camino", color: "bg-sky-50 text-sky-700 ring-sky-600/20" },
   entregado: { label: "Entregado", color: "bg-emerald-50 text-emerald-700 ring-emerald-600/20" },
+  disputado: { label: "En disputa", color: "bg-red-50 text-red-700 ring-red-600/20" },
 };
 
 export function Badge({

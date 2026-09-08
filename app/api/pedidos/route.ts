@@ -6,6 +6,12 @@ import { getActor } from "@/lib/auth";
 import { notificarRepartidor, notificarRepartidoresDisponibles } from "@/lib/telegram";
 import { geocodeAddress } from "@/lib/geocode";
 import { PedidoConRepartidor } from "@/lib/types";
+import {
+  OTP_EXPIRACION_HORAS,
+  ahoraMasHorasIso,
+  generarOtp,
+  registrarEvento,
+} from "@/lib/antifraude";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +21,24 @@ const SELECT_BASE = `
   LEFT JOIN repartidores r ON r.id = p.repartidor_id
 `;
 
-const CODIGO_BASE = 1000;
+// El OTP NUNCA debe devolverse al repartidor: lo tiene que dictar el cliente.
+// Por seguridad lo omitimos del SELECT cuando el actor es "repartidor".
+const SELECT_PARA_REPARTIDOR = `
+  SELECT
+    p.id, p.codigo, p.empresa, p.empresa_id, p.direccion_recojo,
+    p.direccion_entrega, p.observaciones, p.estado, p.repartidor_id,
+    p.lat, p.lng, p.creado_en, p.actualizado_en,
+    NULL AS otp_codigo, NULL AS otp_expira_en,
+    p.otp_intentos, p.otp_validado_en, p.otp_validado_por,
+    p.entrega_lat, p.entrega_lng, p.aceptado_en,
+    p.reclamado_en, p.reclamado_por, p.reclamo_motivo,
+    p.alerta_distancia_km, p.alerta_tiempo_seg, p.alerta_motivo,
+    r.nombre AS repartidor_nombre
+  FROM pedidos p
+  LEFT JOIN repartidores r ON r.id = p.repartidor_id
+`;
+
+const CODIGO_BASE = 10000;
 
 function generarCodigoPedido(db: ReturnType<typeof getDb>): string {
   // Encuentra el siguiente correlativo a partir del mayor número contenido en
@@ -38,15 +61,22 @@ function generarCodigoPedido(db: ReturnType<typeof getDb>): string {
 
 function authFilter(actor: ReturnType<typeof getActor>) {
   if (actor.tipo === "admin") {
-    return { where: "", params: [] as SQLInputValue[] };
+    return { where: "", params: [] as SQLInputValue[], select: SELECT_BASE };
   }
   if (actor.tipo === "empresa" && actor.usuario) {
     return {
       where: "WHERE p.empresa_id = ?",
       params: [actor.usuario.id] as SQLInputValue[],
+      select: SELECT_BASE,
     };
   }
-  return { where: "", params: [] as SQLInputValue[] };
+  // Repartidor: ve todos los pedidos (la PWA filtra por estado en cliente);
+  // el SELECT_PARA_REPARTIDOR oculta el OTP.
+  return {
+    where: "",
+    params: [] as SQLInputValue[],
+    select: SELECT_PARA_REPARTIDOR,
+  };
 }
 
 export async function OPTIONS() {
@@ -60,8 +90,8 @@ export async function GET(req: NextRequest) {
 
   const rows = (
     filter.params.length
-      ? db.prepare(`${SELECT_BASE} ${filter.where} ORDER BY p.id DESC`).all(...filter.params)
-      : db.prepare(`${SELECT_BASE} ORDER BY p.id DESC`).all()
+      ? db.prepare(`${filter.select} ${filter.where} ORDER BY p.id DESC`).all(...filter.params)
+      : db.prepare(`${filter.select} ORDER BY p.id DESC`).all()
   ) as unknown as PedidoConRepartidor[];
   return withCors(NextResponse.json(rows));
 }
@@ -149,6 +179,14 @@ export async function POST(req: NextRequest) {
   const codigo = generarCodigoPedido(db);
   const direccion_recojo = empresaDireccion;
 
+  // Generamos el OTP de verificación de entrega. Es lo que el cliente
+  // dictará al repartidor al momento de la entrega. Lo creamos junto con
+  // el pedido (no se envía al cliente automáticamente — la UI del panel
+  // debe mostrárselo al operador y la empresa debe comunicarlo al cliente
+  // por el canal que prefiera).
+  const otp = generarOtp();
+  const otpExpira = ahoraMasHorasIso(OTP_EXPIRACION_HORAS);
+
   // Geocodificamos la dirección de entrega para que aparezca como un punto
   // fijo en el minimapa del panel. Si Nominatim no devuelve nada, guardamos
   // el pedido igual con coordenadas neutras: simplemente no tendrá pin.
@@ -158,8 +196,11 @@ export async function POST(req: NextRequest) {
 
   const result = db
     .prepare(
-      `INSERT INTO pedidos (codigo, empresa_id, empresa, direccion_recojo, direccion_entrega, observaciones, estado, repartidor_id, lat, lng)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO pedidos
+         (codigo, empresa_id, empresa, direccion_recojo, direccion_entrega,
+          observaciones, estado, repartidor_id, lat, lng,
+          otp_codigo, otp_expira_en, otp_intentos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     )
     .run(
       codigo,
@@ -171,12 +212,22 @@ export async function POST(req: NextRequest) {
       estado,
       repartidor_id,
       lat,
-      lng
+      lng,
+      otp,
+      otpExpira
     );
 
   const row = db
     .prepare(`${SELECT_BASE} WHERE p.id = ?`)
     .get(Number(result.lastInsertRowid)) as unknown as PedidoConRepartidor;
+
+  registrarEvento(db, {
+    pedidoId: row.id,
+    tipo: "creado",
+    actorTipo: actor.tipo,
+    actorId: actor.tipo === "empresa" ? actor.usuario?.id ?? null : null,
+    detalle: `OTP generado, expira ${otpExpira}`,
+  });
 
   // Notificación por Telegram: si el pedido se crea ya asignado, avisa al
   // repartidor; si queda pendiente, hace broadcast a los disponibles.

@@ -159,6 +159,66 @@ function ensureSchema(database: DatabaseSync) {
     database.exec("ALTER TABLE pedidos ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE");
   }
 
+  // --- Columnas para verificación OTP de entrega y antifraude ---
+  const addPedidoCol = (name: string, ddl: string) => {
+    if (!pedidoColNames.includes(name)) {
+      database.exec(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
+    }
+  };
+  // OTP de 6 dígitos generado al crear el pedido. Expira en N horas.
+  addPedidoCol("otp_codigo", "otp_codigo TEXT");
+  addPedidoCol("otp_expira_en", "otp_expira_en TEXT");
+  // Contador de intentos fallidos; al llegar al máximo, el pedido se bloquea.
+  addPedidoCol("otp_intentos", "otp_intentos INTEGER NOT NULL DEFAULT 0");
+  // Evidencia de la entrega: cuándo, quién y desde dónde se validó el OTP.
+  addPedidoCol("otp_validado_en", "otp_validado_en TEXT");
+  addPedidoCol("otp_validado_por", "otp_validado_por INTEGER REFERENCES repartidores(id) ON DELETE SET NULL");
+  addPedidoCol("entrega_lat", "entrega_lat REAL");
+  addPedidoCol("entrega_lng", "entrega_lng REAL");
+  // Marca de tiempo en que el repartidor tomó el pedido (para calcular
+  // tiempo-en-ruta y alertas de entrega sospechosamente rápida).
+  addPedidoCol("aceptado_en", "aceptado_en TEXT");
+  // Disputa abierta por la empresa ("no recibí el pedido").
+  addPedidoCol("reclamado_en", "reclamado_en TEXT");
+  addPedidoCol("reclamado_por", "reclamado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL");
+  addPedidoCol("reclamo_motivo", "reclamo_motivo TEXT");
+  // Banderas antifraude calculadas al validar la entrega.
+  addPedidoCol("alerta_distancia_km", "alerta_distancia_km REAL");
+  addPedidoCol("alerta_tiempo_seg", "alerta_tiempo_seg INTEGER");
+  addPedidoCol("alerta_motivo", "alerta_motivo TEXT");
+
+  // --- Tabla de auditoría: registra intentos OTP y cambios de estado con
+  //     timestamp, actor y metadatos para investigación posterior. ---
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS pedido_eventos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pedido_id INTEGER NOT NULL,
+      tipo TEXT NOT NULL,
+      actor_tipo TEXT,
+      actor_id INTEGER,
+      detalle TEXT,
+      creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE
+    );
+  `);
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pedido_eventos_pedido
+      ON pedido_eventos(pedido_id, creado_en DESC);
+  `);
+
+  // --- Tabla de contadores antifraude por repartidor (rolling). Se actualiza
+  //     en cada entrega válida y en cada reclamo aceptado. ---
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS repartidor_alertas (
+      repartidor_id INTEGER PRIMARY KEY REFERENCES repartidores(id) ON DELETE CASCADE,
+      entregas_totales INTEGER NOT NULL DEFAULT 0,
+      entregas_sospechosas INTEGER NOT NULL DEFAULT 0,
+      reclamos_totales INTEGER NOT NULL DEFAULT 0,
+      ultima_alerta_en TEXT,
+      actualizado_en TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
   const usuarioCols = database
     .prepare("SELECT name FROM pragma_table_info('usuarios')")
     .all() as { name: string }[];
@@ -202,6 +262,14 @@ function seed(database: DatabaseSync) {
 // La identificación es por campos únicos del seed (email / teléfono / código),
 // así que no toca empresas, repartidores ni pedidos reales creados por el admin.
 function purgeDemoData(database: DatabaseSync) {
+  // Idempotente a nivel de BD: si ya corrió alguna vez, no vuelve a hacerlo.
+  // Evita que hot-reload de Next.js dev borre pedidos reales que coincidan
+  // por accidente con códigos del seed histórico.
+  const userVersion = (database
+    .prepare("PRAGMA user_version")
+    .get() as { user_version: number }).user_version;
+  if (userVersion >= 1) return;
+
   const demoEmpresaEmails = [
     "casa@reparto.local",
     "fogon@reparto.local",
@@ -237,6 +305,9 @@ function purgeDemoData(database: DatabaseSync) {
       `DELETE FROM repartidores WHERE telefono IN (${placeholders(demoRepartidorTelefonos.length)})`
     )
     .run(...demoRepartidorTelefonos);
+
+  // Marca la BD como "ya migrada del seed demo" para no volver a correr esto.
+  database.exec("PRAGMA user_version = 1");
 
   if (pedResult.changes || empResult.changes || repResult.changes) {
     console.log(

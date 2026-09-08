@@ -4,7 +4,8 @@ import { withCors } from "@/lib/cors";
 import { getActor } from "@/lib/auth";
 import { notificarRepartidor, notificarRepartidoresDisponibles } from "@/lib/telegram";
 import { geocodeAddress } from "@/lib/geocode";
-import { PedidoConRepartidor } from "@/lib/types";
+import { PedidoConRepartidor, PedidoDetalle } from "@/lib/types";
+import { eventosDePedido } from "@/lib/antifraude";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,33 @@ const SELECT_BASE = `
   LEFT JOIN repartidores r ON r.id = p.repartidor_id
 `;
 
+const SELECT_PARA_REPARTIDOR = `
+  SELECT
+    p.id, p.codigo, p.empresa, p.empresa_id, p.direccion_recojo,
+    p.direccion_entrega, p.observaciones, p.estado, p.repartidor_id,
+    p.lat, p.lng, p.creado_en, p.actualizado_en,
+    NULL AS otp_codigo, NULL AS otp_expira_en,
+    p.otp_intentos, p.otp_validado_en, p.otp_validado_por,
+    p.entrega_lat, p.entrega_lng, p.aceptado_en,
+    p.reclamado_en, p.reclamado_por, p.reclamo_motivo,
+    p.alerta_distancia_km, p.alerta_tiempo_seg, p.alerta_motivo,
+    r.nombre AS repartidor_nombre
+  FROM pedidos p
+  LEFT JOIN repartidores r ON r.id = p.repartidor_id
+`;
+
 function canManage(
   actor: ReturnType<typeof getActor>,
-  row: { empresa_id: number | null }
+  row: { empresa_id: number | null; repartidor_id: number | null }
 ) {
   if (actor.tipo === "admin") return true;
   if (actor.tipo === "empresa" && actor.usuario) {
     return row.empresa_id === actor.usuario.id;
+  }
+  if (actor.tipo === "repartidor" && actor.repartidor) {
+    // El repartidor puede ver un pedido si está asignado a él O si está
+    // pendiente (cualquiera puede aceptarlo). El OTP nunca se devuelve.
+    return row.repartidor_id === actor.repartidor.id || row.repartidor_id == null;
   }
   return false;
 }
@@ -34,16 +55,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const db = getDb();
   const actor = getActor(db, req);
 
-  const row = db
-    .prepare(`${SELECT_BASE} WHERE p.id = ?`)
-    .get(Number(id)) as unknown as PedidoConRepartidor | undefined;
+  const isRepartidor = actor.tipo === "repartidor";
+  const stmt = db.prepare(
+    `${isRepartidor ? SELECT_PARA_REPARTIDOR : SELECT_BASE} WHERE p.id = ?`
+  );
+  const row = stmt.get(Number(id)) as unknown as PedidoConRepartidor | undefined;
   if (!row) {
     return withCors(NextResponse.json({ error: "No encontrado" }, { status: 404 }));
   }
   if (!canManage(actor, row)) {
     return withCors(NextResponse.json({ error: "No autorizado" }, { status: 401 }));
   }
-  return withCors(NextResponse.json(row));
+
+  // Sólo admin y la empresa dueña ven el historial de eventos del pedido.
+  const eventos =
+    actor.tipo === "admin" ||
+    (actor.tipo === "empresa" && actor.usuario?.id === row.empresa_id)
+      ? eventosDePedido(db, row.id)
+      : [];
+
+  const detalle: PedidoDetalle = { ...row, eventos };
+  return withCors(NextResponse.json(detalle));
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { withCors, corsPreflight } from "@/lib/cors";
 import { bearerToken, getRepartidorByToken } from "@/lib/auth";
 import { PedidoConRepartidor } from "@/lib/types";
+import { isoAhora, registrarEvento } from "@/lib/antifraude";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +31,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const result = db
     .prepare(
-      "UPDATE pedidos SET estado = 'asignado', repartidor_id = ?, actualizado_en = datetime('now') WHERE id = ? AND estado = 'pendiente' AND repartidor_id IS NULL"
+      `UPDATE pedidos
+          SET estado = 'asignado',
+              repartidor_id = ?,
+              aceptado_en = ?,
+              actualizado_en = datetime('now')
+        WHERE id = ? AND estado = 'pendiente' AND repartidor_id IS NULL`
     )
-    .run(repartidor.id, id);
+    .run(repartidor.id, isoAhora(), id);
 
   if (result.changes === 0) {
     return withCors(NextResponse.json({ error: "No se pudo aceptar el pedido" }, { status: 409 }));
   }
 
   db.prepare("UPDATE repartidores SET estado = 'ocupado' WHERE id = ?").run(repartidor.id);
+
+  registrarEvento(db, {
+    pedidoId: id,
+    tipo: "aceptado",
+    actorTipo: "repartidor",
+    actorId: repartidor.id,
+  });
 
   const row = db.prepare(`${SELECT} WHERE p.id = ?`).get(id) as unknown as PedidoConRepartidor;
 
