@@ -1,51 +1,72 @@
 "use client";
 
-import { Card } from "@/components/ui";
+import { useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 export default function MapLegendCard() {
+  const [open, setOpen] = useState(false);
+
   return (
-    <Card className="p-4">
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Leyenda
-      </h3>
-      <ul className="space-y-2 text-sm">
-        <li className="flex items-center gap-3">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[3px] border-emerald-600 bg-white text-[12px] leading-none">
-            🏍️
-          </span>
-          <span className="text-foreground">Repartidor disponible</span>
-        </li>
-        <li className="flex items-center gap-3">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[3px] border-amber-500 bg-white text-[12px] leading-none">
-            🏍️
-          </span>
-          <span className="text-foreground">Repartidor ocupado</span>
-        </li>
-        <li className="flex items-center gap-3">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-500">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-            </svg>
-          </span>
-          <span className="text-foreground">Pedido pendiente</span>
-        </li>
-        <li className="flex items-center gap-3">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-blue-600">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-            </svg>
-          </span>
-          <span className="text-foreground">Pedido en curso</span>
-        </li>
-        <li className="flex items-center gap-3 text-muted-foreground">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center text-emerald-600">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
-            </svg>
-          </span>
-          <span className="line-through">Entregado (oculto)</span>
-        </li>
-      </ul>
-    </Card>
+    <div className="absolute bottom-3 right-3 z-[1000]">
+      {open && (
+        <div className="mb-2 rounded-xl border border-border bg-card/90 p-3 shadow-lg backdrop-blur-sm">
+          <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Leyenda
+          </h4>
+          <ul className="space-y-1.5 text-xs">
+            <li className="flex items-center gap-2">
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 bg-white text-[10px] font-bold text-emerald-600"
+              >
+                RC
+              </span>
+              <span className="text-foreground">Disponible</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-amber-500 bg-white text-[10px] font-bold text-amber-600"
+              >
+                RC
+              </span>
+              <span className="text-foreground">Ocupado</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-400">
+                <svg viewBox="0 0 24 30" width="14" height="17">
+                  <path d="M12 0C6.48 0 2 4.48 2 10c0 7.5 10 20 10 20s10-12.5 10-20C22 4.48 17.52 0 12 0z" fill="currentColor"/>
+                  <circle cx="12" cy="10" r="3" fill="white"/>
+                </svg>
+              </span>
+              <span className="text-foreground">Pedido pendiente</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center text-blue-600">
+                <svg viewBox="0 0 24 30" width="14" height="17">
+                  <path d="M12 0C6.48 0 2 4.48 2 10c0 7.5 10 20 10 20s10-12.5 10-20C22 4.48 17.52 0 12 0z" fill="currentColor"/>
+                  <circle cx="12" cy="10" r="3" fill="white"/>
+                </svg>
+              </span>
+              <span className="text-foreground">En camino</span>
+            </li>
+          </ul>
+        </div>
+      )}
+
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card/90 text-muted-foreground shadow-lg backdrop-blur-sm transition hover:bg-card hover:text-foreground"
+        aria-label="Toggle leyenda"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4" />
+        ) : (
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+        )}
+      </button>
+    </div>
   );
 }

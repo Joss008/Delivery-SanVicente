@@ -10,7 +10,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { Button, Card, Field, inputClass, Modal } from "@/components/ui";
+import { Button, Card, Field, inputClass, Modal, ConfirmDialog } from "@/components/ui";
 import { Badge, ESTADO_REPARTIDOR } from "@/components/badges";
 import { authFetch } from "@/lib/clientAuth";
 import type { Repartidor } from "@/lib/types";
@@ -22,6 +22,9 @@ export default function RepartidoresAdmin() {
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Repartidor | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Repartidor | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -48,15 +51,28 @@ export default function RepartidoresAdmin() {
     `${r.nombre} ${r.telefono}`.toLowerCase().includes(query.toLowerCase())
   );
 
-  async function handleDelete(r: Repartidor) {
-    if (!confirm(`¿Eliminar el repartidor "${r.nombre}"?`)) return;
-    const res = await authFetch(`/api/repartidores/${r.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error ?? "No se pudo eliminar el repartidor");
-      return;
+  function closeDelete() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await authFetch(`/api/repartidores/${deleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error ?? "No se pudo eliminar el repartidor");
+        return;
+      }
+      setDeleteTarget(null);
+      refresh();
+    } finally {
+      setDeleting(false);
     }
-    refresh();
   }
 
   return (
@@ -164,7 +180,7 @@ export default function RepartidoresAdmin() {
                     <Button variant="ghost" onClick={() => setEditTarget(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" onClick={() => handleDelete(r)} aria-label="Eliminar">
+                    <Button variant="ghost" onClick={() => setDeleteTarget(r)} aria-label="Eliminar">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -186,6 +202,25 @@ export default function RepartidoresAdmin() {
         onClose={() => setEditTarget(null)}
         onSaved={refresh}
         existing={editTarget}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Eliminar repartidor"
+        description="Esta acción no se puede deshacer. El motorizado dejará de recibir pedidos."
+        confirmLabel="Eliminar repartidor"
+        loading={deleting}
+        error={deleteError}
+        onConfirm={confirmDelete}
+        onClose={closeDelete}
+        details={
+          deleteTarget && (
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <p className="font-semibold tracking-tight text-foreground">{deleteTarget.nombre}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{deleteTarget.telefono}</p>
+            </div>
+          )
+        }
       />
     </div>
   );
@@ -288,10 +323,11 @@ function RepartidorForm({
           }
         >
           <input
-            type="text"
+            type="password"
             className={inputClass}
             value={form.password}
             placeholder={existing ? "••••••••" : form.telefono || "Igual al teléfono"}
+            autoComplete="new-password"
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
         </Field>

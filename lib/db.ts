@@ -186,6 +186,9 @@ function ensureSchema(database: DatabaseSync) {
   addPedidoCol("alerta_distancia_km", "alerta_distancia_km REAL");
   addPedidoCol("alerta_tiempo_seg", "alerta_tiempo_seg INTEGER");
   addPedidoCol("alerta_motivo", "alerta_motivo TEXT");
+  // Pago al repartidor que acepte el pedido (en soles). Lo define la empresa
+  // al crear el pedido y el motorizado lo ve antes de aceptar.
+  addPedidoCol("pago_repartidor", "pago_repartidor REAL NOT NULL DEFAULT 0");
 
   // --- Tabla de auditoría: registra intentos OTP y cambios de estado con
   //     timestamp, actor y metadatos para investigación posterior. ---

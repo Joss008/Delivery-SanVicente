@@ -7,17 +7,10 @@ import { Repartidor, PedidoConRepartidor } from "@/lib/types";
 
 const CAÑETE_CENTER: [number, number] = [-13.0833, -76.3833];
 
-// Cualquier coordenada numérica y finita cuenta como "real" — el geocoder
-// ya se encarga de devolver un fallback duro (centro de San Vicente de
-// Cañete) cuando Nominatim no encuentra la dirección, así que nunca
-// guardamos el placeholder del schema.
 function tieneCoordenadasReales(p: { lat: number; lng: number }) {
   return Number.isFinite(p.lat) && Number.isFinite(p.lng);
 }
 
-// Filtro regional: descartamos coordenadas a más de ~200 km de Cañete para
-// evitar pines en otros países por GPS de prueba, geocoding erróneo, o
-// datos importados de otra zona.
 const MAX_DISTANCE_KM = 200;
 
 function estaEnZonaCañete(lat: number, lng: number): boolean {
@@ -27,41 +20,180 @@ function estaEnZonaCañete(lat: number, lng: number): boolean {
   const dLon = toRad(lng - CAÑETE_CENTER[1]);
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(CAÑETE_CENTER[0])) * Math.cos(toRad(lat)) *
+    Math.cos(toRad(CAÑETE_CENTER[0])) *
+      Math.cos(toRad(lat)) *
       Math.sin(dLon / 2) ** 2;
   const km = 2 * R * Math.asin(Math.sqrt(a));
   return km <= MAX_DISTANCE_KM;
 }
 
-function repartidorIcon(estado: string) {
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
+
+function isActiveRecently(ubicacion_recibida_en: string | null): boolean {
+  if (!ubicacion_recibida_en) return false;
+  const last = new Date(ubicacion_recibida_en.replace(" ", "T") + "Z").getTime();
+  return Date.now() - last < 60_000;
+}
+
+function timeAgo(ubicacion_recibida_en: string | null): string {
+  if (!ubicacion_recibida_en) return "Sin datos";
+  const last = new Date(ubicacion_recibida_en.replace(" ", "T") + "Z").getTime();
+  const diff = Math.floor((Date.now() - last) / 1000);
+  if (diff < 60) return "Hace segundos";
+  if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `Hace ${Math.floor(diff / 3600)}h`;
+  return `Hace ${Math.floor(diff / 86400)}d`;
+}
+
+function repartidorIcon(nombre: string, estado: string, reciente: boolean) {
   const color =
-    estado === "disponible" ? "#059669" : estado === "ocupado" ? "#d97706" : "#94a3b8";
+    estado === "disponible"
+      ? "#10b981"
+      : estado === "ocupado"
+        ? "#f59e0b"
+        : "#94a3b8";
+  const initials = getInitials(nombre);
   return L.divIcon({
     className: "",
     html: `
-      <div style="width:40px;height:40px;border-radius:50%;background:white;border:3px solid ${color};box-shadow:0 2px 6px rgba(15,23,42,.35);display:flex;align-items:center;justify-content:center;font-size:22px;line-height:1;">
-        🏍️
+      <div class="repartidor-marker ${reciente ? "repartidor-marker--active" : ""}" style="
+        position: relative;
+        width: 42px;
+        height: 42px;
+      ">
+        ${reciente ? `<span class="repartidor-pulse" style="
+          position: absolute;
+          inset: -4px;
+          border-radius: 50%;
+          border: 2px solid ${color};
+          animation: pulse-ring 2s ease-out infinite;
+        "></span>` : ""}
+        <div style="
+          width: 42px;
+          height: 42px;
+          border-radius: 50%;
+          background: white;
+          border: 3px solid ${color};
+          box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 13px;
+          font-weight: 700;
+          font-family: system-ui, -apple-system, sans-serif;
+          color: ${color};
+          letter-spacing: -0.02em;
+          position: relative;
+          z-index: 1;
+        ">
+          ${initials}
+        </div>
       </div>`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
+    iconSize: [42, 42],
+    iconAnchor: [21, 21],
   });
 }
 
 function pedidoIcon(estado: string) {
   const color =
-    estado === "entregado" ? "#059669" : estado === "pendiente" ? "#64748b" : "#2563eb";
+    estado === "entregado"
+      ? "#10b981"
+      : estado === "pendiente"
+        ? "#64748b"
+        : "#2563eb";
   return L.divIcon({
     className: "",
     html: `
-      <div style="width:36px;height:36px;position:relative;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 2px 3px rgba(15,23,42,.3));">
-          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-          <circle cx="12" cy="10" r="3" fill="white" stroke="none" />
+      <div style="
+        width: 32px;
+        height: 40px;
+        position: relative;
+        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
+      ">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 24 30">
+          <path d="M12 0C6.48 0 2 4.48 2 10c0 7.5 10 20 10 20s10-12.5 10-20C22 4.48 17.52 0 12 0z" fill="${color}"/>
+          <circle cx="12" cy="10" r="4" fill="white"/>
         </svg>
       </div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 36],
+    iconSize: [32, 40],
+    iconAnchor: [16, 40],
   });
+}
+
+function buildRepartidorPopup(r: Repartidor): string {
+  const estadoColor =
+    r.estado === "disponible"
+      ? "#10b981"
+      : r.estado === "ocupado"
+        ? "#f59e0b"
+        : "#94a3b8";
+  const estadoLabel =
+    r.estado === "disponible"
+      ? "Disponible"
+      : r.estado === "ocupado"
+        ? "Ocupado"
+        : "Inactivo";
+  return `
+    <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 160px;">
+      <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 4px;">
+        ${r.nombre}
+      </div>
+      <div style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; background: ${estadoColor}15; color: ${estadoColor}; font-size: 12px; font-weight: 600; margin-bottom: 6px;">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${estadoColor};"></span>
+        ${estadoLabel}
+      </div>
+      <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+        📞 ${r.telefono}<br/>
+        ⏱ ${timeAgo(r.ubicacion_recibida_en)}
+      </div>
+    </div>`;
+}
+
+function buildPedidoPopup(p: PedidoConRepartidor): string {
+  const estadoColor =
+    p.estado === "entregado"
+      ? "#10b981"
+      : p.estado === "pendiente"
+        ? "#64748b"
+        : p.estado === "en_camino"
+          ? "#2563eb"
+          : p.estado === "asignado"
+            ? "#8b5cf6"
+            : "#ef4444";
+  const estadoLabel =
+    p.estado === "pendiente"
+      ? "Pendiente"
+      : p.estado === "asignado"
+        ? "Asignado"
+        : p.estado === "en_camino"
+          ? "En camino"
+          : p.estado === "entregado"
+            ? "Entregado"
+            : "Disputado";
+  return `
+    <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
+      <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 2px;">
+        ${p.codigo}
+      </div>
+      <div style="font-size: 12px; color: #64748b; margin-bottom: 6px;">
+        ${p.empresa}
+      </div>
+      <div style="display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 9999px; background: ${estadoColor}15; color: ${estadoColor}; font-size: 12px; font-weight: 600; margin-bottom: 6px;">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: ${estadoColor};"></span>
+        ${estadoLabel}
+      </div>
+      <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+        📍 ${p.direccion_entrega}
+        ${p.repartidor_nombre ? `<br/>🏍 ${p.repartidor_nombre}` : ""}
+      </div>
+    </div>`;
 }
 
 export default function LeafletMap({
@@ -81,15 +213,27 @@ export default function LeafletMap({
     if (!containerRef.current || initializedRef.current) return;
     initializedRef.current = true;
 
-    const map = L.map(containerRef.current, { zoomControl: true }).setView(
-      CAÑETE_CENTER,
-      14
-    );
+    const map = L.map(containerRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+    }).setView(CAÑETE_CENTER, 14);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "&copy; OpenStreetMap contributors",
-      maxZoom: 19,
-    }).addTo(map);
+    L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      {
+        maxZoom: 19,
+        subdomains: ["a", "b", "c"],
+        attribution: "© OpenStreetMap",
+      }
+    ).addTo(map);
+
+    L.control
+      .zoom({ position: "topright" })
+      .addTo(map);
+
+    L.control
+      .attribution({ position: "bottomleft", prefix: false })
+      .addTo(map);
 
     repGroupRef.current = L.layerGroup().addTo(map);
     pedGroupRef.current = L.layerGroup().addTo(map);
@@ -125,31 +269,32 @@ export default function LeafletMap({
     repartidores.forEach((r) => {
       if (!tieneCoordenadasReales(r)) return;
       if (!estaEnZonaCañete(r.lat, r.lng)) return;
-      L.marker([r.lat, r.lng], { icon: repartidorIcon(r.estado) })
-        .bindPopup(
-          `<strong>${r.nombre}</strong><br/>${r.estado}<br/><span style="color:#64748b;font-size:11px;">${r.telefono}</span>`
-        )
+      const reciente = isActiveRecently(r.ubicacion_recibida_en);
+      L.marker([r.lat, r.lng], {
+        icon: repartidorIcon(r.nombre, r.estado, reciente),
+      })
+        .bindPopup(buildRepartidorPopup(r), {
+          className: "custom-popup",
+        })
         .addTo(repGroup);
       puntos.push([r.lat, r.lng]);
     });
 
     pedidos.forEach((p) => {
-      // Solo mostramos un pin fijo por pedido si tiene coordenadas reales
-      // (geocodificadas al crear/editar) y todavía no se marcó como entregado.
       if (!tieneCoordenadasReales(p)) return;
       if (p.estado === "entregado") return;
       if (!estaEnZonaCañete(p.lat, p.lng)) return;
       L.marker([p.lat, p.lng], { icon: pedidoIcon(p.estado) })
-        .bindPopup(
-          `<strong>${p.codigo}</strong><br/>${p.empresa}<br/>${p.direccion_entrega}<br/>${p.estado}`
-        )
+        .bindPopup(buildPedidoPopup(p), {
+          className: "custom-popup",
+        })
         .addTo(pedGroup);
       puntos.push([p.lat, p.lng]);
     });
 
     if (puntos.length > 1) {
       map.fitBounds(L.latLngBounds(puntos), {
-        padding: [40, 40],
+        padding: [50, 50],
         maxZoom: 16,
       });
     } else if (puntos.length === 1) {
@@ -157,5 +302,5 @@ export default function LeafletMap({
     }
   }, [repartidores, pedidos]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return <div ref={containerRef} className="relative h-full w-full" />;
 }

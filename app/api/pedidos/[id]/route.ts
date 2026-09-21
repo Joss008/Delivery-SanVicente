@@ -25,6 +25,7 @@ const SELECT_PARA_REPARTIDOR = `
     p.entrega_lat, p.entrega_lng, p.aceptado_en,
     p.reclamado_en, p.reclamado_por, p.reclamo_motivo,
     p.alerta_distancia_km, p.alerta_tiempo_seg, p.alerta_motivo,
+    p.pago_repartidor,
     r.nombre AS repartidor_nombre
   FROM pedidos p
   LEFT JOIN repartidores r ON r.id = p.repartidor_id
@@ -106,11 +107,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const observaciones = body.observaciones ? String(body.observaciones).trim() : null;
   const estado = String(body.estado ?? "pendiente");
   const repartidor_id = body.repartidor_id ? Number(body.repartidor_id) : null;
+  const pagoRepartidorRaw = body.pago_repartidor;
+  const pago_repartidor =
+    pagoRepartidorRaw === undefined || pagoRepartidorRaw === null || pagoRepartidorRaw === ""
+      ? 0
+      : Number(pagoRepartidorRaw);
 
   if (!direccion_entrega) {
     return withCors(
       NextResponse.json(
         { error: "La dirección de entrega es obligatoria" },
+        { status: 400 }
+      )
+    );
+  }
+
+  if (
+    pagoRepartidorRaw !== undefined &&
+    (!Number.isFinite(pago_repartidor) || pago_repartidor < 0)
+  ) {
+    return withCors(
+      NextResponse.json(
+        { error: "El pago al repartidor debe ser un número mayor o igual a 0" },
         { status: 400 }
       )
     );
@@ -157,6 +175,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     "observaciones = ?",
     "estado = ?",
     "repartidor_id = ?",
+    "pago_repartidor = ?",
   ];
   const setVals: (string | number | null)[] = [
     empresaId,
@@ -165,6 +184,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     observaciones,
     estado,
     repartidor_id,
+    pago_repartidor,
   ];
   if (lat !== undefined && lng !== undefined) {
     setCols.push("lat = ?", "lng = ?");
@@ -197,11 +217,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const asignoNuevoRepartidor = newRep != null && newRep !== prevRep;
 
   if (broadcast) {
-    const msg = `🆕 Pedido disponible <b>${row.codigo}</b>\n${row.empresa}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+    const msg = `🆕 Pedido disponible <b>${row.codigo}</b>\n${row.empresa}\n💰 Pago: S/ ${row.pago_repartidor.toFixed(2)}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
     // Repartidores externos: broadcast a todos los disponibles.
     await notificarRepartidoresDisponibles(db, msg);
   } else if (asignoNuevoRepartidor && (prevEstado !== newEstado || prevRep == null)) {
-    const msg = `📋 Se te asignó el pedido <b>${row.codigo}</b>\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+    const msg = `📋 Se te asignó el pedido <b>${row.codigo}</b>\n💰 Pago: S/ ${row.pago_repartidor.toFixed(2)}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
     await notificarRepartidor(db, newRep, msg);
   }
 

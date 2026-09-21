@@ -18,13 +18,15 @@ import {
   Trash2,
   TrendingUp,
   Users,
+  Wallet,
 } from "lucide-react";
 import MapView from "@/components/MapView";
 import MapLegendCard from "@/components/MapLegendCard";
 import AdminDashboard from "@/components/AdminDashboard";
 import AntifraudPanel from "@/components/AntifraudPanel";
 import RepartidoresAdmin from "@/components/RepartidoresAdmin";
-import { Modal, Field, inputClass, Button, Card } from "@/components/ui";
+import Dock from "@/components/Dock";
+import { Modal, Field, inputClass, Button, Card, ConfirmDialog } from "@/components/ui";
 import { Badge, ESTADO_REPARTIDOR, ESTADO_PEDIDO } from "@/components/badges";
 import { OtpCard } from "@/components/OtpCard";
 import { cn } from "@/lib/utils";
@@ -182,41 +184,38 @@ function AdminShell({
 
   const meta = ADMIN_PAGE_META[tab];
 
+  const adminItems = [
+    {
+      icon: <Building2 size={18} />,
+      label: "Empresas",
+      onClick: () => setTab("empresas"),
+    },
+    {
+      icon: <Bike size={18} />,
+      label: "Repartidores",
+      onClick: () => setTab("repartidores"),
+    },
+    {
+      icon: <ShieldAlert size={18} />,
+      label: "Antifraude",
+      onClick: () => setTab("antifraude"),
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       <ShellHeader
         title={meta.title}
         description={meta.description}
         currentUser={{ ...currentAdmin, rolLabel: "Administrador" }}
         onLogout={onLogout}
       />
-      <nav className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-6 lg:px-8">
-          {ADMIN_NAV.map(({ key, label, icon: Icon }) => {
-            const active = tab === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={cn(
-                  "flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition",
-                  active
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-      <main className="mx-auto max-w-6xl px-6 py-8 lg:px-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 overflow-auto px-6 py-8 pb-24 lg:px-8">
         {tab === "empresas" && <AdminDashboard currentAdmin={currentAdmin} />}
         {tab === "repartidores" && <RepartidoresAdmin />}
         {tab === "antifraude" && <AntifraudPanel />}
       </main>
+      <Dock items={adminItems} panelHeight={68} baseItemSize={50} magnification={70} />
     </div>
   );
 }
@@ -238,6 +237,9 @@ function EmpresaShell({
   const [pedCreated, setPedCreated] = useState<PedidoConRepartidor | null>(null);
   const [pedDetalleOtp, setPedDetalleOtp] = useState<PedidoConRepartidor | null>(null);
   const [pedDetalleReclamo, setPedDetalleReclamo] = useState<PedidoConRepartidor | null>(null);
+  const [pedDeleteTarget, setPedDeleteTarget] = useState<PedidoConRepartidor | null>(null);
+  const [pedDeleting, setPedDeleting] = useState(false);
+  const [pedDeleteError, setPedDeleteError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -289,159 +291,171 @@ function EmpresaShell({
   const pedidosEnCamino = pedidos.filter((p) => p.estado === "en_camino");
   const pedidosEntregados = pedidos.filter((p) => p.estado === "entregado");
 
+  const empresaItems = [
+    {
+      icon: <LayoutDashboard size={18} />,
+      label: "Panel",
+      onClick: () => setTab("mapa"),
+      badge: null,
+    },
+    {
+      icon: <Package size={18} />,
+      label: `Pedidos${pedidos.length > 0 ? ` (${pedidos.length})` : ""}`,
+      onClick: () => setTab("pedidos"),
+      badge: pedidos.length,
+    },
+  ];
+
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-card md:flex">
-        <div className="flex items-center gap-3 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <MapPin className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold leading-tight">Reparto Cañete</p>
-            <p className="truncate text-xs text-muted-foreground">{currentUser.nombre}</p>
-          </div>
-        </div>
-
-        <nav className="flex-1 space-y-1 px-3 py-2">
-          {NAV.map(({ key, label, icon: Icon }) => {
-            const active = tab === key;
-            const count = key === "pedidos" ? pedidos.length : null;
-            return (
-              <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={cn(
-                  "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="flex-1 text-left">{label}</span>
-                {count !== null && (
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-medium",
-                      active ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="border-t border-border px-5 py-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            Actualización cada 15 s
-          </div>
-        </div>
-      </aside>
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ShellHeader
-          title={meta.title}
-          description={meta.description}
-          currentUser={{ ...currentUser, rolLabel: "Empresa" }}
-          onLogout={onLogout}
-          right={
-            <>
-              <Button variant="outline" onClick={refresh}>
-                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-                Actualizar
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <ShellHeader
+        title={meta.title}
+        description={meta.description}
+        currentUser={{ ...currentUser, rolLabel: "Empresa" }}
+        onLogout={onLogout}
+        right={
+          <>
+            <Button variant="outline" onClick={refresh}>
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              Actualizar
+            </Button>
+            {tab === "pedidos" && (
+              <Button onClick={() => setPedCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> Nuevo pedido
               </Button>
-              {tab === "pedidos" && (
-                <Button onClick={() => setPedCreateOpen(true)}>
-                  <Plus className="h-4 w-4" /> Nuevo pedido
-                </Button>
-              )}
-            </>
-          }
-        />
+            )}
+          </>
+        }
+      />
 
-        <div className="flex gap-1 overflow-x-auto border-b border-border bg-card px-4 md:hidden">
-          {NAV.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={cn(
-                "flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition",
-                tab === key
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <main className="flex-1 overflow-auto p-6 lg:p-8">
+      <main className="flex-1 overflow-auto p-6 pb-24 lg:p-8">
           {tab === "mapa" && (
-            <div className="space-y-6">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <StatCard
-                  label="Pedidos pendientes"
-                  value={pedidosPendientes.length}
-                  icon={Clock}
-                  tone="bg-amber-50 text-amber-600"
-                />
-                <StatCard
-                  label="En camino"
-                  value={pedidosEnCamino.length}
-                  icon={TrendingUp}
-                  tone="bg-blue-50 text-blue-600"
-                />
-                <StatCard
-                  label="Pedidos entregados"
-                  value={pedidosEntregados.length}
-                  icon={Package}
-                  tone="bg-emerald-50 text-emerald-600"
-                />
-              </div>
+            <div className="space-y-5">
+              <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
+                <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+                  <div className="h-[calc(100vh-16rem)] min-h-[380px]">
+                    <MapView repartidores={repartidoresEnMapa} pedidos={pedidos} />
+                  </div>
 
-              <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-                <Card className="flex h-[480px] flex-col overflow-hidden p-0">
-                  <MapView repartidores={repartidoresEnMapa} pedidos={pedidos} />
-                </Card>
+                  <div className="absolute left-3 top-3 z-[1000] flex flex-col gap-2">
+                    <div className="flex items-center gap-2.5 rounded-xl border border-white/20 bg-white/80 px-3 py-2 shadow-lg backdrop-blur-md">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/15">
+                        <Clock className="h-4 w-4 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold leading-none text-foreground">{pedidosPendientes.length}</p>
+                        <p className="text-[10px] font-medium text-muted-foreground">Pendientes</p>
+                      </div>
+                    </div>
 
-                <div className="space-y-6">
-                  <Card className="p-5">
-                    <h3 className="mb-4 text-sm font-semibold text-muted-foreground">
-                      Pedidos pendientes
-                    </h3>
-                    <ul className="space-y-3">
+                    <div className="flex items-center gap-2.5 rounded-xl border border-white/20 bg-white/80 px-3 py-2 shadow-lg backdrop-blur-md">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/15">
+                        <TrendingUp className="h-4 w-4 text-blue-600" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold leading-none text-foreground">{pedidosEnCamino.length}</p>
+                        <p className="text-[10px] font-medium text-muted-foreground">En camino</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 rounded-xl border border-white/20 bg-white/80 px-3 py-2 shadow-lg backdrop-blur-md">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15">
+                        <Package className="h-4 w-4 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold leading-none text-foreground">{pedidosEntregados.length}</p>
+                        <p className="text-[10px] font-medium text-muted-foreground">Entregados</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <MapLegendCard />
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Pedidos pendientes
+                      </h3>
+                      {pedidosPendientes.length > 0 && (
+                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+                          {pedidosPendientes.length}
+                        </span>
+                      )}
+                    </div>
+                    <ul className="space-y-2">
                       {pedidosPendientes.length === 0 && (
-                        <li className="text-sm text-muted-foreground">Sin pedidos pendientes.</li>
+                        <li className="py-6 text-center text-xs text-muted-foreground">
+                          Sin pedidos pendientes
+                        </li>
                       )}
                       {pedidosPendientes.map((p) => (
                         <li
                           key={p.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+                          className="group flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 transition hover:border-border hover:bg-muted/40"
                         >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-foreground">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                            <Package className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">
                               {p.codigo}
                             </p>
                             <p className="truncate text-xs text-muted-foreground">
-                              {p.empresa} · {p.direccion_entrega}
+                              {p.direccion_entrega}
                             </p>
                           </div>
-                          <Badge value={p.estado} map={ESTADO_PEDIDO} />
                         </li>
                       ))}
                     </ul>
-                  </Card>
+                  </div>
 
-                  <MapLegendCard />
+                  {repartidoresEnMapa.length > 0 && (
+                    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        Repartidores activos
+                      </h3>
+                      <ul className="space-y-2">
+                        {repartidoresEnMapa.slice(0, 5).map((r) => (
+                          <li
+                            key={r.id}
+                            className="flex items-center gap-3 rounded-xl px-3 py-2"
+                          >
+                            <div className="relative">
+                              <div
+                                className={cn(
+                                  "flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white",
+                                  r.estado === "disponible"
+                                    ? "bg-emerald-500"
+                                    : r.estado === "ocupado"
+                                      ? "bg-amber-500"
+                                      : "bg-slate-400"
+                                )}
+                              >
+                                {initials(r.nombre)}
+                              </div>
+                              {r.ubicacion_recibida_en && (
+                                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-400" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {r.nombre}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {r.estado === "disponible"
+                                  ? "Disponible"
+                                  : r.estado === "ocupado"
+                                    ? "En ruta"
+                                    : "Inactivo"}
+                              </p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -456,6 +470,7 @@ function EmpresaShell({
                       <th className="px-5 py-3 font-medium">Código</th>
                       <th className="px-5 py-3 font-medium">Recojo → Entrega</th>
                       <th className="px-5 py-3 font-medium">Motorizado</th>
+                      <th className="px-5 py-3 font-medium">Pago</th>
                       <th className="px-5 py-3 font-medium">Estado</th>
                       <th className="px-5 py-3 font-medium">Verificación</th>
                       <th className="px-5 py-3 font-medium text-right">Acciones</th>
@@ -464,7 +479,7 @@ function EmpresaShell({
                   <tbody>
                     {pedidos.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-5 py-10 text-center text-muted-foreground">
+                        <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
                           Aún no tienes pedidos. Crea el primero desde "Nuevo pedido".
                         </td>
                       </tr>
@@ -488,6 +503,12 @@ function EmpresaShell({
                           </td>
                           <td className="px-5 py-3 text-muted-foreground">
                             {p.repartidor_nombre ?? "Sin asignar"}
+                          </td>
+                          <td className="px-5 py-3">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                              <Wallet className="h-3 w-3" />
+                              S/ {Number(p.pago_repartidor ?? 0).toFixed(2)}
+                            </span>
                           </td>
                           <td className="px-5 py-3">
                             <div className="flex flex-col gap-1">
@@ -546,7 +567,7 @@ function EmpresaShell({
                               <Button variant="ghost" onClick={() => setPedEdit(p)} aria-label="Editar">
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" onClick={() => handleDeletePedido(p.id)} aria-label="Eliminar">
+                              <Button variant="ghost" onClick={() => setPedDeleteTarget(p)} aria-label="Eliminar">
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
                             </div>
@@ -560,7 +581,8 @@ function EmpresaShell({
             </div>
           )}
         </main>
-      </div>
+
+        <Dock items={empresaItems} panelHeight={68} baseItemSize={50} magnification={70} />
 
       <PedidoForm
         open={pedCreateOpen}
@@ -592,6 +614,13 @@ function EmpresaShell({
               Guarda el código de verificación y compártelo con tu cliente. El
               repartidor deberá ingresarlo al momento de entregar el pedido.
             </p>
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              <Wallet className="h-4 w-4" />
+              <span>
+                Pago al repartidor:{" "}
+                <strong>S/ {Number(pedCreated.pago_repartidor ?? 0).toFixed(2)}</strong>
+              </span>
+            </div>
             <OtpCard
               codigo={pedCreated.otp_codigo ?? "------"}
               expiraEn={pedCreated.otp_expira_en}
@@ -627,18 +656,58 @@ function EmpresaShell({
           await refresh();
         }}
       />
+
+      <ConfirmDialog
+        open={!!pedDeleteTarget}
+        title="Eliminar pedido"
+        description="Esta acción no se puede deshacer. Se notificará al repartidor si ya estaba asignado."
+        confirmLabel="Eliminar pedido"
+        loading={pedDeleting}
+        error={pedDeleteError}
+        onConfirm={confirmDeletePedido}
+        onClose={closeDeletePedido}
+        details={
+          pedDeleteTarget && (
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-semibold tracking-tight text-foreground">
+                  {pedDeleteTarget.codigo}
+                </span>
+                <Badge value={pedDeleteTarget.estado} map={ESTADO_PEDIDO} />
+              </div>
+              <p className="text-sm font-medium text-foreground">{pedDeleteTarget.empresa}</p>
+              <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                {pedDeleteTarget.direccion_recojo} → {pedDeleteTarget.direccion_entrega}
+              </p>
+            </div>
+          )
+        }
+      />
     </div>
   );
 
-  async function handleDeletePedido(id: number) {
-    if (!confirm("¿Eliminar este pedido?")) return;
-    const res = await authFetch(`/api/pedidos/${id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error ?? "No se pudo eliminar el pedido");
-      return;
+  function closeDeletePedido() {
+    if (pedDeleting) return;
+    setPedDeleteTarget(null);
+    setPedDeleteError(null);
+  }
+
+  async function confirmDeletePedido() {
+    if (!pedDeleteTarget) return;
+    setPedDeleting(true);
+    setPedDeleteError(null);
+    try {
+      const res = await authFetch(`/api/pedidos/${pedDeleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPedDeleteError(data.error ?? "No se pudo eliminar el pedido");
+        return;
+      }
+      setPedDeleteTarget(null);
+      refresh();
+    } finally {
+      setPedDeleting(false);
     }
-    refresh();
   }
 }
 
@@ -662,18 +731,25 @@ function StatCard({
   icon: typeof Users;
   tone: string;
 }) {
+  const colors = tone.includes("amber")
+    ? { bg: "from-amber-500 to-orange-400", ring: "bg-amber-500/10", icon: "text-amber-600" }
+    : tone.includes("blue")
+      ? { bg: "from-blue-500 to-cyan-400", ring: "bg-blue-500/10", icon: "text-blue-600" }
+      : { bg: "from-emerald-500 to-teal-400", ring: "bg-emerald-500/10", icon: "text-emerald-600" };
+
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between">
+    <div className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 shadow-sm transition hover:shadow-md">
+      <div className={cn("absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-[0.07] bg-gradient-to-br", colors.bg)} />
+      <div className="relative flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-muted-foreground">{label}</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{value}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="mt-2 text-4xl font-bold tracking-tight text-foreground">{value}</p>
         </div>
-        <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", tone)}>
-          <Icon className="h-5 w-5" />
+        <div className={cn("flex h-11 w-11 items-center justify-center rounded-xl", colors.ring)}>
+          <Icon className={cn("h-5 w-5", colors.icon)} />
         </div>
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -699,6 +775,7 @@ function PedidoForm({
     observaciones: "",
     estado: "pendiente",
     repartidor_id: "",
+    pago_repartidor: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -712,6 +789,10 @@ function PedidoForm({
         observaciones: existing.observaciones ?? "",
         estado: existing.estado,
         repartidor_id: existing.repartidor_id ? String(existing.repartidor_id) : "",
+        pago_repartidor:
+          typeof existing.pago_repartidor === "number"
+            ? String(existing.pago_repartidor)
+            : "",
       });
     } else {
       setForm({
@@ -719,6 +800,7 @@ function PedidoForm({
         observaciones: "",
         estado: "pendiente",
         repartidor_id: "",
+        pago_repartidor: "",
       });
     }
   }, [open, existing]);
@@ -738,6 +820,10 @@ function PedidoForm({
           observaciones: form.observaciones || null,
           estado: form.estado,
           repartidor_id: form.repartidor_id ? Number(form.repartidor_id) : null,
+          pago_repartidor:
+            form.pago_repartidor.trim() === ""
+              ? 0
+              : Number(form.pago_repartidor),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -798,6 +884,30 @@ function PedidoForm({
         </Field>
         <Field label="Observaciones (opcional)">
           <textarea className={inputClass} value={form.observaciones} rows={2} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} />
+        </Field>
+        <Field label="Pago al repartidor (S/)">
+          <div className="relative">
+            <Wallet className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className={cn(inputClass, "pl-8 pr-12")}
+              type="number"
+              inputMode="decimal"
+              step="0.10"
+              min="0"
+              placeholder="0.00"
+              value={form.pago_repartidor}
+              onChange={(e) =>
+                setForm({ ...form, pago_repartidor: e.target.value })
+              }
+              required
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground">
+              S/
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Monto que recibirá el repartidor al entregar este pedido. Se mostrará en la PWA antes de aceptar.
+          </p>
         </Field>
         {existing && (
           <div className="grid grid-cols-2 gap-3">

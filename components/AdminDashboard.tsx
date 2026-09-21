@@ -10,7 +10,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { Button, Card, Field, inputClass, Modal } from "@/components/ui";
+import { Button, Card, Field, inputClass, Modal, ConfirmDialog } from "@/components/ui";
 import { Combobox } from "@/components/ui/combobox";
 import { authFetch } from "@/lib/clientAuth";
 import type { Usuario } from "@/lib/types";
@@ -31,6 +31,9 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Usuario | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Usuario | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -57,17 +60,28 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
     `${e.nombre} ${e.email}`.toLowerCase().includes(query.toLowerCase())
   );
 
-  async function handleDelete(e: Usuario) {
-    if (!confirm(`¿Eliminar la empresa "${e.nombre}"? Sus pedidos y repartidores también se eliminarán.`)) {
-      return;
+  function closeDelete() {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteError(null);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await authFetch(`/api/usuarios/${deleteTarget.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error ?? "No se pudo eliminar la empresa");
+        return;
+      }
+      setDeleteTarget(null);
+      refresh();
+    } finally {
+      setDeleting(false);
     }
-    const res = await authFetch(`/api/usuarios/${e.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error ?? "No se pudo eliminar la empresa");
-      return;
-    }
-    refresh();
   }
 
   return (
@@ -157,7 +171,7 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
                     <Button variant="ghost" onClick={() => setEditTarget(e)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" onClick={() => handleDelete(e)} aria-label="Eliminar">
+                    <Button variant="ghost" onClick={() => setDeleteTarget(e)} aria-label="Eliminar">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
@@ -179,6 +193,30 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
         onClose={() => setEditTarget(null)}
         onSaved={refresh}
         existing={editTarget}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="Eliminar empresa"
+        description="Esta acción no se puede deshacer. La cuenta dejará de tener acceso al panel."
+        confirmLabel="Eliminar empresa"
+        loading={deleting}
+        error={deleteError}
+        onConfirm={confirmDelete}
+        onClose={closeDelete}
+        details={
+          deleteTarget && (
+            <div className="rounded-xl border border-border bg-muted/40 p-3">
+              <p className="font-semibold tracking-tight text-foreground">{deleteTarget.nombre}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{deleteTarget.email}</p>
+              {deleteTarget.direccion && (
+                <p className="mt-1 text-xs text-muted-foreground line-clamp-2">
+                  {deleteTarget.direccion}
+                </p>
+              )}
+            </div>
+          )
+        }
       />
     </div>
   );
@@ -332,11 +370,12 @@ function EmpresaForm({
           }
         >
           <input
-            type="text"
+            type="password"
             className={inputClass}
             value={form.password}
             placeholder={existing ? "••••••••" : "Mínimo 6 caracteres"}
             minLength={existing ? 0 : 6}
+            autoComplete="new-password"
             onChange={(e) => setForm({ ...form, password: e.target.value })}
           />
         </Field>

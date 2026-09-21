@@ -33,6 +33,7 @@ const SELECT_PARA_REPARTIDOR = `
     p.entrega_lat, p.entrega_lng, p.aceptado_en,
     p.reclamado_en, p.reclamado_por, p.reclamo_motivo,
     p.alerta_distancia_km, p.alerta_tiempo_seg, p.alerta_motivo,
+    p.pago_repartidor,
     r.nombre AS repartidor_nombre
   FROM pedidos p
   LEFT JOIN repartidores r ON r.id = p.repartidor_id
@@ -109,11 +110,25 @@ export async function POST(req: NextRequest) {
   const observaciones = body.observaciones ? String(body.observaciones).trim() : null;
   const estado = String(body.estado ?? "pendiente");
   const repartidor_id = body.repartidor_id ? Number(body.repartidor_id) : null;
+  const pagoRepartidorRaw = body.pago_repartidor;
+  const pago_repartidor =
+    pagoRepartidorRaw === undefined || pagoRepartidorRaw === null || pagoRepartidorRaw === ""
+      ? 0
+      : Number(pagoRepartidorRaw);
 
   if (!direccion_entrega) {
     return withCors(
       NextResponse.json(
         { error: "La dirección de entrega es obligatoria" },
+        { status: 400 }
+      )
+    );
+  }
+
+  if (!Number.isFinite(pago_repartidor) || pago_repartidor < 0) {
+    return withCors(
+      NextResponse.json(
+        { error: "El pago al repartidor debe ser un número mayor o igual a 0" },
         { status: 400 }
       )
     );
@@ -199,8 +214,8 @@ export async function POST(req: NextRequest) {
       `INSERT INTO pedidos
          (codigo, empresa_id, empresa, direccion_recojo, direccion_entrega,
           observaciones, estado, repartidor_id, lat, lng,
-          otp_codigo, otp_expira_en, otp_intentos)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+          otp_codigo, otp_expira_en, otp_intentos, pago_repartidor)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
     )
     .run(
       codigo,
@@ -214,7 +229,8 @@ export async function POST(req: NextRequest) {
       lat,
       lng,
       otp,
-      otpExpira
+      otpExpira,
+      pago_repartidor
     );
 
   const row = db
@@ -231,7 +247,8 @@ export async function POST(req: NextRequest) {
 
   // Notificación por Telegram: si el pedido se crea ya asignado, avisa al
   // repartidor; si queda pendiente, hace broadcast a los disponibles.
-  const msg = `🆕 Nuevo pedido <b>${row.codigo}</b>\n${row.empresa}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
+  const pagoFmt = `S/ ${row.pago_repartidor.toFixed(2)}`;
+  const msg = `🆕 Nuevo pedido <b>${row.codigo}</b>\n${row.empresa}\n💰 Pago: ${pagoFmt}\n📍 Recojo: ${row.direccion_recojo}\n🏠 Entrega: ${row.direccion_entrega}`;
   if (row.estado === "pendiente" && row.repartidor_id == null) {
     // Repartidores externos: broadcast a todos los disponibles.
     await notificarRepartidoresDisponibles(db, msg);

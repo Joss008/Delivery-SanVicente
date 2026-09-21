@@ -61,6 +61,11 @@ export interface Pedido {
   lng: number;
   creado_en: string;
   actualizado_en: string;
+  /**
+   * Pago al repartidor que acepte el pedido, expresado en soles (PEN).
+   * Lo define la empresa al crear el pedido y el motorizado lo ve antes de aceptar.
+   */
+  pago_repartidor: number;
   // --- Verificación OTP ---
   /** Código de 6 dígitos que el repartidor debe pedir al cliente al entregar. */
   otp_codigo: string | null;
