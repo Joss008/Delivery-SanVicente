@@ -57,6 +57,38 @@ login. Las credenciales iniciales se crean automáticamente con el seed:
 vez (pendiente de UI — de momento hazlo directo en la BD si tienes acceso
 shell al servicio).
 
+### 3.1 Confirmar que el disco quedó montado
+
+En la shell del servicio (Render → tu servicio → **Shell**):
+
+```bash
+ls -la /var/data
+# Esperado: reparto.db, reparto.db-shm, reparto.db-wal
+```
+
+Y en los logs de arranque del servicio tenés que ver:
+
+```
+[db] DATA_DIR=/var/data
+[db] BD resuelta en: /var/data/reparto.db
+```
+
+Si la línea dice `BD resuelta en: /opt/render/project/src/data/reparto.db`
+o similar (dentro del proyecto), el disco NO está montado en ese servicio
+y los datos se borrarán en cada deploy. Verificá el plan (Starter mínimo)
+y que el disco `reparto-data` siga listado en **Disks**.
+
+Si en producción la BD cae dentro del proyecto, el server falla al arrancar
+con un error claro indicando que hay que setear `DATA_DIR` y montar el disco.
+
+### 3.2 Backups manuales
+
+Como admin, entrá al panel y en la pestaña **Empresas** hay un botón
+**Backup** que descarga una copia consistente de la BD (hace
+`wal_checkpoint(TRUNCATE)` antes de copiar). Guardá esos archivos en un
+lugar seguro (Drive, Dropbox, etc.) — son la red de seguridad si el disco
+se rompe.
+
 ## 4. Variables de entorno
 
 | Variable | Descripción | Requerida |

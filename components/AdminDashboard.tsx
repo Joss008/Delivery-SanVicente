@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Building2,
+  Database,
+  Loader2,
   MapPin,
   Pencil,
   Plus,
@@ -12,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button, Card, Field, inputClass, Modal, ConfirmDialog } from "@/components/ui";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
-import { authFetch } from "@/lib/clientAuth";
+import { authFetch, getToken } from "@/lib/clientAuth";
 import type { Usuario } from "@/lib/types";
 
 interface AdminDashboardProps {
@@ -50,6 +52,43 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const [descargandoBackup, setDescargandoBackup] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  async function descargarBackup() {
+    setDescargandoBackup(true);
+    setBackupError(null);
+    try {
+      const token = getToken();
+      if (!token) throw new Error("Sin sesión");
+      const res = await fetch("/api/admin/backup", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "No se pudo descargar el backup");
+      }
+      const blob = await res.blob();
+      const filename =
+        res.headers
+          .get("Content-Disposition")
+          ?.match(/filename="?([^";]+)"?/)?.[1] ??
+        `reparto-${Date.now()}.db`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : "Error desconocido");
+    } finally {
+      setDescargandoBackup(false);
+    }
+  }
 
   const filtered = empresas.filter((e) =>
     `${e.nombre} ${e.email}`.toLowerCase().includes(query.toLowerCase())
@@ -118,11 +157,30 @@ export default function AdminDashboard({ currentAdmin }: AdminDashboardProps) {
             <Button variant="outline" onClick={refresh} aria-label="Refrescar">
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
+            <Button
+              variant="outline"
+              onClick={descargarBackup}
+              disabled={descargandoBackup}
+              aria-label="Descargar backup"
+            >
+              {descargandoBackup ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+              Backup
+            </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" /> Nueva empresa
             </Button>
           </div>
         </div>
+
+        {backupError && (
+          <p className="border-b border-border bg-destructive/5 px-5 py-3 text-sm text-destructive">
+            {backupError}
+          </p>
+        )}
 
         {error && (
           <p className="border-b border-border bg-destructive/5 px-5 py-3 text-sm text-destructive">

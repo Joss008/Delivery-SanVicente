@@ -5,10 +5,53 @@ import { hashPassword } from "@/lib/auth";
 
 // DATA_DIR puede apuntar a un disco persistente en producción (Render).
 // Por defecto se usa ./data dentro del proyecto (útil para dev local).
+const PROJECT_ROOT = process.cwd();
 const DATA_DIR = process.env.DATA_DIR
   ? path.resolve(process.env.DATA_DIR)
-  : path.join(process.cwd(), "data");
+  : path.join(PROJECT_ROOT, "data");
 const DB_PATH = path.join(DATA_DIR, "reparto.db");
+
+/**
+ * Devuelve true si el directorio resuelto para la BD cae DENTRO del árbol
+ * del proyecto. En ese caso, en entornos con deploys efímeros (Render,
+ * Vercel, Railway, Fly, etc.) la BD se BORRARÁ en cada deploy aunque el
+ * servicio monte un disco persistente, porque el directorio del proyecto
+ * se regenera desde cero antes de montarlo.
+ *
+ * La heurística es: si DATA_DIR está seteado por env var, respetamos lo que
+ * el operador eligió (incluso si por error apunta al proyecto). Si NO está
+ * seteado y la ruta cae dentro de cwd, asumimos configuración accidental.
+ */
+function rutaBdEsEfimera(resolvedDataDir: string): boolean {
+  if (process.env.DATA_DIR) return false;
+  const rel = path.relative(PROJECT_ROOT, resolvedDataDir);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/**
+ * Garantiza que la BD viva en un directorio persistente en producción. Si
+ * la configuración lleva la BD al directorio del proyecto, lanzamos un error
+ * ruidoso al iniciar para que el deploy falle en vez de arrancar con datos
+ * que se borrarán en el próximo push.
+ */
+function assertBdPersistente(): void {
+  console.log(
+    `[db] DATA_DIR=${process.env.DATA_DIR ?? "(unset, usando ./data)"}`
+  );
+  console.log(`[db] BD resuelta en: ${DB_PATH}`);
+  if (rutaBdEsEfimera(DATA_DIR)) {
+    console.warn(
+      `[db] ⚠️  La BD está dentro del proyecto (${path.relative(PROJECT_ROOT, DB_PATH)}). En producción se borrará en cada deploy.`
+    );
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        `BD configurada en directorio efímero (${DB_PATH}). Configurá DATA_DIR=/var/data y montá un disco persistente en esa ruta. Ver DEPLOY.md sección 2.`
+      );
+    }
+  }
+}
+
+export { DATA_DIR, DB_PATH, rutaBdEsEfimera, assertBdPersistente };
 
 export const REPARTIDOR_PUBLIC_COLUMNS =
   "id, nombre, telefono, estado, lat, lng, actualizado_en, ubicacion_recibida_en, gps_pausado_en, empresa_id, telegram_chat_id";
@@ -321,6 +364,7 @@ function purgeDemoData(database: DatabaseSync) {
 
 export function getDb(): DatabaseSync {
   if (db) return db;
+  assertBdPersistente();
   fs.mkdirSync(DATA_DIR, { recursive: true });
   db = new DatabaseSync(DB_PATH);
   ensureSchema(db);
