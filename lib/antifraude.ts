@@ -285,8 +285,8 @@ export function resumenAntifraude(db: DatabaseSync) {
     .prepare(
       `SELECT COUNT(*) AS n
          FROM pedidos
-        WHERE alerta_motivo IS NOT NULL
-          AND julianday('now') - julianday(creado_en) <= ?`
+         WHERE alerta_motivo IS NOT NULL
+           AND julianday('now') - julianday(creado_en) <= ?`
     )
     .get(ANTIFRAUDE_RECLAMOS_VENTANA_DIAS) as { n: number };
 

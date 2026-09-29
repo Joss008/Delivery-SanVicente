@@ -124,7 +124,8 @@ function ensureSchema(database: DatabaseSync) {
     .prepare("SELECT name FROM pragma_table_info('pedidos')")
     .all() as { name: string }[];
   const pedColNames = pedCols.map((c) => c.name);
-  const hasOldSchema = pedColNames.includes("cliente") || pedColNames.includes("descripcion");
+  const hasOldSchema =
+    pedColNames.includes("cliente") || pedColNames.includes("descripcion");
   if (hasOldSchema) {
     database.exec("DROP TABLE pedidos;");
     database.exec(`
@@ -162,10 +163,14 @@ function ensureSchema(database: DatabaseSync) {
     database.exec("ALTER TABLE repartidores ADD COLUMN token TEXT");
   }
   if (!repColNames.includes("empresa_id")) {
-    database.exec("ALTER TABLE repartidores ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL");
+    database.exec(
+      "ALTER TABLE repartidores ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL"
+    );
   }
   if (!repColNames.includes("ubicacion_recibida_en")) {
-    database.exec("ALTER TABLE repartidores ADD COLUMN ubicacion_recibida_en TEXT");
+    database.exec(
+      "ALTER TABLE repartidores ADD COLUMN ubicacion_recibida_en TEXT"
+    );
   }
   if (!repColNames.includes("gps_pausado_en")) {
     // Timestamp de cuándo el repartidor desactivó manualmente el envío de
@@ -194,47 +199,43 @@ function ensureSchema(database: DatabaseSync) {
       .run(sLat, sLng);
   }
 
-  const pedidoCols = database
-    .prepare("SELECT name FROM pragma_table_info('pedidos')")
-    .all() as { name: string }[];
-  const pedidoColNames = pedidoCols.map((c) => c.name);
-  if (!pedidoColNames.includes("empresa_id")) {
-    database.exec("ALTER TABLE pedidos ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE");
+  if (!pedColNames.includes("empresa_id")) {
+    database.exec(
+      "ALTER TABLE pedidos ADD COLUMN empresa_id INTEGER REFERENCES usuarios(id) ON DELETE CASCADE"
+    );
   }
 
   // --- Columnas para verificación OTP de entrega y antifraude ---
   const addPedidoCol = (name: string, ddl: string) => {
-    if (!pedidoColNames.includes(name)) {
+    if (!pedColNames.includes(name)) {
       database.exec(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
     }
   };
-  // OTP de 6 dígitos generado al crear el pedido. Expira en N horas.
   addPedidoCol("otp_codigo", "otp_codigo TEXT");
   addPedidoCol("otp_expira_en", "otp_expira_en TEXT");
-  // Contador de intentos fallidos; al llegar al máximo, el pedido se bloquea.
   addPedidoCol("otp_intentos", "otp_intentos INTEGER NOT NULL DEFAULT 0");
-  // Evidencia de la entrega: cuándo, quién y desde dónde se validó el OTP.
   addPedidoCol("otp_validado_en", "otp_validado_en TEXT");
-  addPedidoCol("otp_validado_por", "otp_validado_por INTEGER REFERENCES repartidores(id) ON DELETE SET NULL");
+  addPedidoCol(
+    "otp_validado_por",
+    "otp_validado_por INTEGER REFERENCES repartidores(id) ON DELETE SET NULL"
+  );
   addPedidoCol("entrega_lat", "entrega_lat REAL");
   addPedidoCol("entrega_lng", "entrega_lng REAL");
-  // Marca de tiempo en que el repartidor tomó el pedido (para calcular
-  // tiempo-en-ruta y alertas de entrega sospechosamente rápida).
   addPedidoCol("aceptado_en", "aceptado_en TEXT");
-  // Disputa abierta por la empresa ("no recibí el pedido").
   addPedidoCol("reclamado_en", "reclamado_en TEXT");
-  addPedidoCol("reclamado_por", "reclamado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL");
+  addPedidoCol(
+    "reclamado_por",
+    "reclamado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL"
+  );
   addPedidoCol("reclamo_motivo", "reclamo_motivo TEXT");
-  // Banderas antifraude calculadas al validar la entrega.
   addPedidoCol("alerta_distancia_km", "alerta_distancia_km REAL");
   addPedidoCol("alerta_tiempo_seg", "alerta_tiempo_seg INTEGER");
   addPedidoCol("alerta_motivo", "alerta_motivo TEXT");
-  // Pago al repartidor que acepte el pedido (en soles). Lo define la empresa
-  // al crear el pedido y el motorizado lo ve antes de aceptar.
-  addPedidoCol("pago_repartidor", "pago_repartidor REAL NOT NULL DEFAULT 0");
+  addPedidoCol(
+    "pago_repartidor",
+    "pago_repartidor REAL NOT NULL DEFAULT 0"
+  );
 
-  // --- Tabla de auditoría: registra intentos OTP y cambios de estado con
-  //     timestamp, actor y metadatos para investigación posterior. ---
   database.exec(`
     CREATE TABLE IF NOT EXISTS pedido_eventos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,8 +253,6 @@ function ensureSchema(database: DatabaseSync) {
       ON pedido_eventos(pedido_id, creado_en DESC);
   `);
 
-  // --- Tabla de contadores antifraude por repartidor (rolling). Se actualiza
-  //     en cada entrega válida y en cada reclamo aceptado. ---
   database.exec(`
     CREATE TABLE IF NOT EXISTS repartidor_alertas (
       repartidor_id INTEGER PRIMARY KEY REFERENCES repartidores(id) ON DELETE CASCADE,
@@ -281,7 +280,9 @@ function ensureDefaultPasswords(database: DatabaseSync) {
   for (const r of rows) {
     const { hash, salt } = hashPassword(r.telefono);
     database
-      .prepare("UPDATE repartidores SET password_hash = ?, password_salt = ? WHERE id = ?")
+      .prepare(
+        "UPDATE repartidores SET password_hash = ?, password_salt = ? WHERE id = ?"
+      )
       .run(hash, salt, r.id);
   }
 }
@@ -305,15 +306,10 @@ function seed(database: DatabaseSync) {
 
 // Limpia los registros demo que pudieron quedar en bases existentes antes de
 // pasar a producción. Es idempotente: si los datos ya no están, no hace nada.
-// La identificación es por campos únicos del seed (email / teléfono / código),
-// así que no toca empresas, repartidores ni pedidos reales creados por el admin.
 function purgeDemoData(database: DatabaseSync) {
-  // Idempotente a nivel de BD: si ya corrió alguna vez, no vuelve a hacerlo.
-  // Evita que hot-reload de Next.js dev borre pedidos reales que coincidan
-  // por accidente con códigos del seed histórico.
-  const userVersion = (database
-    .prepare("PRAGMA user_version")
-    .get() as { user_version: number }).user_version;
+  const userVersion = (
+    database.prepare("PRAGMA user_version").get() as { user_version: number }
+  ).user_version;
   if (userVersion >= 1) return;
 
   const demoEmpresaEmails = [
@@ -332,27 +328,24 @@ function purgeDemoData(database: DatabaseSync) {
 
   const placeholders = (n: number) => new Array(n).fill("?").join(",");
 
-  // 1) Pedidos demo (los borramos primero por claridad; los pedidos.empresa_id
-  //    tienen ON DELETE CASCADE, pero queremos que el borrado sea explícito).
   const pedResult = database
-    .prepare(`DELETE FROM pedidos WHERE codigo IN (${placeholders(demoPedidoCodigos.length)})`)
+    .prepare(
+      `DELETE FROM pedidos WHERE codigo IN (${placeholders(demoPedidoCodigos.length)})`
+    )
     .run(...demoPedidoCodigos);
 
-  // 2) Empresas demo (rol_id = 2 para no tocar al admin).
   const empResult = database
     .prepare(
       `DELETE FROM usuarios WHERE rol_id = ? AND email IN (${placeholders(demoEmpresaEmails.length)})`
     )
     .run(ROL_EMPRESA, ...demoEmpresaEmails);
 
-  // 3) Repartidores demo.
   const repResult = database
     .prepare(
       `DELETE FROM repartidores WHERE telefono IN (${placeholders(demoRepartidorTelefonos.length)})`
     )
     .run(...demoRepartidorTelefonos);
 
-  // Marca la BD como "ya migrada del seed demo" para no volver a correr esto.
   database.exec("PRAGMA user_version = 1");
 
   if (pedResult.changes || empResult.changes || repResult.changes) {
@@ -360,24 +353,6 @@ function purgeDemoData(database: DatabaseSync) {
       `[db] Purga demo: ${empResult.changes} empresa(s), ${repResult.changes} repartidor(es), ${pedResult.changes} pedido(s) eliminados.`
     );
   }
-}
-
-export function getDb(): DatabaseSync {
-  if (db) return db;
-  assertBdPersistente();
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  db = new DatabaseSync(DB_PATH);
-  ensureSchema(db);
-  seed(db);
-  purgeDemoData(db);
-  ensureDefaultPasswords(db);
-
-  // Backfill en segundo plano: re-geocodifica pedidos cuyas coordenadas siguen
-  // siendo el placeholder (-13.0833, -76.3833). No bloquea el arranque del
-  // servidor y respeta el rate-limit de Nominatim (~1 req/s).
-  void backfillPedidoCoords(db);
-
-  return db;
 }
 
 const PLACEHOLDER_LAT = -13.0833;
@@ -394,13 +369,8 @@ async function backfillPedidoCoords(database: DatabaseSync): Promise<void> {
   globalThis.__geocodeBackfillRunning = true;
 
   try {
-    // Importación perezosa para no introducir ciclos con lib/geocode.
     const { geocodeAddress } = await import("@/lib/geocode");
 
-    // Re-geocodificamos:
-    //   1) los pedidos con coordenadas placeholder exactas
-    //   2) los pedidos con coordenadas fuera de la zona de Cañete (errores
-    //      previos que el filtro regional del mapa estaría ocultando).
     const allRows = database
       .prepare(
         "SELECT id, direccion_entrega, lat, lng FROM pedidos WHERE direccion_entrega IS NOT NULL AND direccion_entrega != ''"
@@ -426,7 +396,9 @@ async function backfillPedidoCoords(database: DatabaseSync): Promise<void> {
       const dLon = toRad(lon2 - lon1);
       const a =
         Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+        Math.cos(toRad(lat1)) *
+          Math.cos(toRad(lat2)) *
+          Math.sin(dLon / 2) ** 2;
       return 2 * R * Math.asin(Math.sqrt(a));
     };
 
@@ -457,7 +429,6 @@ async function backfillPedidoCoords(database: DatabaseSync): Promise<void> {
       } catch (err) {
         console.warn(`[geocode-backfill] Pedido ${row.id}:`, err);
       }
-      // ~1.1s entre peticiones para respetar el límite de Nominatim.
       await new Promise((r) => setTimeout(r, 1100));
     }
     console.log("[geocode-backfill] Listo.");
@@ -466,4 +437,21 @@ async function backfillPedidoCoords(database: DatabaseSync): Promise<void> {
   } finally {
     globalThis.__geocodeBackfillRunning = false;
   }
+}
+
+export function getDb(): DatabaseSync {
+  if (db) return db;
+  assertBdPersistente();
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  db = new DatabaseSync(DB_PATH);
+  ensureSchema(db);
+  seed(db);
+  purgeDemoData(db);
+  ensureDefaultPasswords(db);
+
+  // Backfill en segundo plano: re-geocodifica pedidos cuyas coordenadas
+  // siguen siendo el placeholder. No bloquea el arranque del servidor.
+  void backfillPedidoCoords(db);
+
+  return db;
 }
