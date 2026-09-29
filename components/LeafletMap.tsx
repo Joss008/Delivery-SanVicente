@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Repartidor, PedidoConRepartidor } from "@/lib/types";
+import type { EmpresaPin } from "./MapView";
 
 const CAÑETE_CENTER: [number, number] = [-13.0833, -76.3833];
 
@@ -52,7 +53,12 @@ function timeAgo(ubicacion_recibida_en: string | null): string {
   return `Hace ${Math.floor(diff / 86400)}d`;
 }
 
-function repartidorIcon(nombre: string, estado: string, reciente: boolean) {
+function repartidorIcon(
+  nombre: string,
+  estado: string,
+  reciente: boolean,
+  pausado: boolean
+) {
   const color =
     estado === "disponible"
       ? "#10b981"
@@ -60,15 +66,24 @@ function repartidorIcon(nombre: string, estado: string, reciente: boolean) {
         ? "#f59e0b"
         : "#94a3b8";
   const initials = getInitials(nombre);
+  // Cuando el repartidor puso "Fuera de servicio" en la PWA, atenuamos el
+  // marker: borde gris, fondo gris claro, sin pulso, e ícono de pausa abajo.
+  const borderColor = pausado ? "#94a3b8" : color;
+  const textColor = pausado ? "#475569" : color;
+  const bg = pausado ? "#f1f5f9" : "white";
+  const shadow = pausado
+    ? "0 1px 4px rgba(0,0,0,0.10)"
+    : "0 2px 8px rgba(0,0,0,0.18)";
   return L.divIcon({
     className: "",
     html: `
-      <div class="repartidor-marker ${reciente ? "repartidor-marker--active" : ""}" style="
+      <div class="repartidor-marker ${reciente && !pausado ? "repartidor-marker--active" : ""}" style="
         position: relative;
         width: 42px;
         height: 42px;
+        opacity: ${pausado ? "0.75" : "1"};
       ">
-        ${reciente ? `<span class="repartidor-pulse" style="
+        ${reciente && !pausado ? `<span class="repartidor-pulse" style="
           position: absolute;
           inset: -4px;
           border-radius: 50%;
@@ -79,22 +94,44 @@ function repartidorIcon(nombre: string, estado: string, reciente: boolean) {
           width: 42px;
           height: 42px;
           border-radius: 50%;
-          background: white;
-          border: 3px solid ${color};
-          box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+          background: ${bg};
+          border: 3px solid ${borderColor};
+          border-style: ${pausado ? "dashed" : "solid"};
+          box-shadow: ${shadow};
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 13px;
           font-weight: 700;
           font-family: system-ui, -apple-system, sans-serif;
-          color: ${color};
+          color: ${textColor};
           letter-spacing: -0.02em;
           position: relative;
           z-index: 1;
         ">
           ${initials}
         </div>
+        ${pausado ? `<span style="
+          position: absolute;
+          bottom: -4px;
+          right: -4px;
+          z-index: 2;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: #475569;
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+          border: 2px solid white;
+        ">
+          <svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 24 24" fill="white">
+            <rect x="6" y="5" width="4" height="14" rx="1"/>
+            <rect x="14" y="5" width="4" height="14" rx="1"/>
+          </svg>
+        </span>` : ""}
       </div>`,
     iconSize: [42, 42],
     iconAnchor: [21, 21],
@@ -127,21 +164,78 @@ function pedidoIcon(estado: string) {
   });
 }
 
+/**
+ * Pin permanente del local de la empresa. Casa blanca con techo azul,
+ * diferenciado de los repartidores (círculo) y de los pedidos (globo).
+ */
+function empresaIcon(label?: string) {
+  const safeLabel = (label ?? "Local")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return L.divIcon({
+    className: "",
+    html: `
+      <div style="
+        position: relative;
+        width: 44px;
+        height: 52px;
+        filter: drop-shadow(0 3px 6px rgba(0,0,0,0.25));
+      ">
+        <svg xmlns="http://www.w3.org/2000/svg" width="44" height="52" viewBox="0 0 44 52">
+          <path d="M22 0C9.85 0 0 9.85 0 22c0 16.5 22 30 22 30s22-13.5 22-30C44 9.85 34.15 0 22 0z" fill="#2563eb"/>
+          <circle cx="22" cy="22" r="11" fill="white"/>
+          <path d="M14 27 L14 21 L22 14 L30 21 L30 27 L26 27 L26 23 L18 23 L18 27 Z" fill="#2563eb"/>
+          <rect x="20" y="24" width="4" height="3" fill="#2563eb"/>
+        </svg>
+        <div style="
+          position: absolute;
+          bottom: -4px;
+          left: 50%;
+          transform: translateX(-50%);
+          max-width: 110px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          background: white;
+          color: #0f172a;
+          font-family: system-ui, -apple-system, sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          padding: 2px 6px;
+          border-radius: 9999px;
+          border: 1px solid #2563eb;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        ">
+          ${safeLabel}
+        </div>
+      </div>`,
+    iconSize: [44, 52],
+    iconAnchor: [22, 52],
+  });
+}
+
 function buildRepartidorPopup(r: Repartidor): string {
-  const estadoColor =
-    r.estado === "disponible"
+  const pausado = !!r.gps_pausado_en;
+  const estadoColor = pausado
+    ? "#64748b"
+    : r.estado === "disponible"
       ? "#10b981"
       : r.estado === "ocupado"
         ? "#f59e0b"
         : "#94a3b8";
-  const estadoLabel =
-    r.estado === "disponible"
+  const estadoLabel = pausado
+    ? "Fuera de servicio"
+    : r.estado === "disponible"
       ? "Disponible"
       : r.estado === "ocupado"
         ? "Ocupado"
         : "Inactivo";
+  const ultimaLinea = pausado
+    ? `Pausado ${timeAgo(r.gps_pausado_en)}<br/>Última señal: ${timeAgo(r.ubicacion_recibida_en)}`
+    : `📞 ${r.telefono}<br/>⏱ ${timeAgo(r.ubicacion_recibida_en)}`;
   return `
-    <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 160px;">
+    <div style="font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
       <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 4px;">
         ${r.nombre}
       </div>
@@ -150,8 +244,7 @@ function buildRepartidorPopup(r: Repartidor): string {
         ${estadoLabel}
       </div>
       <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
-        📞 ${r.telefono}<br/>
-        ⏱ ${timeAgo(r.ubicacion_recibida_en)}
+        ${ultimaLinea}
       </div>
     </div>`;
 }
@@ -199,15 +292,24 @@ function buildPedidoPopup(p: PedidoConRepartidor): string {
 export default function LeafletMap({
   repartidores,
   pedidos,
+  empresaPin,
 }: {
   repartidores: Repartidor[];
   pedidos: PedidoConRepartidor[];
+  empresaPin?: EmpresaPin | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const repGroupRef = useRef<L.LayerGroup | null>(null);
   const pedGroupRef = useRef<L.LayerGroup | null>(null);
+  const empMarkerRef = useRef<L.Marker | null>(null);
   const initializedRef = useRef(false);
+  /**
+   * Se activa en cuanto el usuario hace pan o zoom manualmente. A partir de
+   * ese momento NO volvemos a llamar `fitBounds`/`setView` en los refreshes
+   * periódicos (cada 15 s), para no pisar el encuadre que el operador eligió.
+   */
+  const usuarioMovioMapaRef = useRef(false);
 
   useEffect(() => {
     if (!containerRef.current || initializedRef.current) return;
@@ -240,6 +342,18 @@ export default function LeafletMap({
 
     mapRef.current = map;
 
+    // Marcamos el flag cuando el operador interactúa con el mapa. Leaflet
+    // también emite estos eventos cuando el zoom se programa (p.ej. doble
+    // tap), así que es suficiente para detectar intención del usuario.
+    const onUserPan = () => {
+      usuarioMovioMapaRef.current = true;
+    };
+    const onUserZoom = () => {
+      usuarioMovioMapaRef.current = true;
+    };
+    map.on("dragstart zoomstart", onUserPan);
+    map.on("zoomstart", onUserZoom);
+
     const observer = new ResizeObserver(() => {
       map.invalidateSize();
     });
@@ -247,13 +361,53 @@ export default function LeafletMap({
 
     return () => {
       observer.disconnect();
+      map.off("dragstart zoomstart", onUserPan);
+      map.off("zoomstart", onUserZoom);
       map.remove();
       mapRef.current = null;
       repGroupRef.current = null;
       pedGroupRef.current = null;
+      empMarkerRef.current = null;
       initializedRef.current = false;
+      usuarioMovioMapaRef.current = false;
     };
   }, []);
+
+  // Pin permanente del local de la empresa. Se actualiza (no se recrea) cuando
+  // cambia la prop; NO participa del fitBounds, sólo sirve como referencia
+  // visual del negocio en el mapa.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (empMarkerRef.current) {
+      map.removeLayer(empMarkerRef.current);
+      empMarkerRef.current = null;
+    }
+    if (!empresaPin) return;
+    if (
+      !Number.isFinite(empresaPin.lat) ||
+      !Number.isFinite(empresaPin.lng)
+    ) {
+      return;
+    }
+    const marker = L.marker([empresaPin.lat, empresaPin.lng], {
+      icon: empresaIcon(empresaPin.label),
+      keyboard: false,
+      zIndexOffset: 500,
+    }).bindPopup(
+      `<div style="font-family: system-ui, -apple-system, sans-serif; min-width: 150px;">
+        <div style="font-weight: 700; font-size: 13px; color: #0f172a; margin-bottom: 2px;">
+          📍 Local
+        </div>
+        <div style="font-size: 12px; color: #475569;">
+          ${(empresaPin.label ?? "Punto de recojo").replace(/</g, "&lt;")}
+        </div>
+      </div>`,
+      { className: "custom-popup" }
+    );
+    marker.addTo(map);
+    empMarkerRef.current = marker;
+  }, [empresaPin]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -264,20 +418,24 @@ export default function LeafletMap({
     repGroup.clearLayers();
     pedGroup.clearLayers();
 
-    const puntos: L.LatLngTuple[] = [];
+    // Marcamos los repartidores y pedidos en sus layers. Sólo los repartidores
+    // entran al fitBounds de fallback (los pedidos NO, para que un pedido
+    // lejano no descuadre la flota de Cañete).
+    const puntosRepartidores: L.LatLngTuple[] = [];
 
     repartidores.forEach((r) => {
       if (!tieneCoordenadasReales(r)) return;
       if (!estaEnZonaCañete(r.lat, r.lng)) return;
       const reciente = isActiveRecently(r.ubicacion_recibida_en);
+      const pausado = !!r.gps_pausado_en;
       L.marker([r.lat, r.lng], {
-        icon: repartidorIcon(r.nombre, r.estado, reciente),
+        icon: repartidorIcon(r.nombre, r.estado, reciente, pausado),
       })
         .bindPopup(buildRepartidorPopup(r), {
           className: "custom-popup",
         })
         .addTo(repGroup);
-      puntos.push([r.lat, r.lng]);
+      puntosRepartidores.push([r.lat, r.lng]);
     });
 
     pedidos.forEach((p) => {
@@ -289,18 +447,37 @@ export default function LeafletMap({
           className: "custom-popup",
         })
         .addTo(pedGroup);
-      puntos.push([p.lat, p.lng]);
     });
 
-    if (puntos.length > 1) {
-      map.fitBounds(L.latLngBounds(puntos), {
+    if (usuarioMovioMapaRef.current) {
+      // El operador ya hizo pan/zoom manualmente: respetamos su encuadre y
+      // NO sobrescribimos el zoom en cada refresh periódico (cada 15 s).
+      return;
+    }
+
+    // Ancla principal: el local de la empresa. Si está geocodificado
+    // centramos ahí con un nivel de zoom que muestre ~1 km a la redonda,
+    // suficiente para ver la flota en Cañete sin zoomear de más.
+    if (
+      empresaPin &&
+      Number.isFinite(empresaPin.lat) &&
+      Number.isFinite(empresaPin.lng)
+    ) {
+      map.setView([empresaPin.lat, empresaPin.lng], 14);
+      return;
+    }
+
+    // Sin pin del local: caemos al fitBounds de los repartidores para que el
+    // operador no quede mirando un mapa genérico de Cañete.
+    if (puntosRepartidores.length > 1) {
+      map.fitBounds(L.latLngBounds(puntosRepartidores), {
         padding: [50, 50],
         maxZoom: 16,
       });
-    } else if (puntos.length === 1) {
-      map.setView(puntos[0], 15);
+    } else if (puntosRepartidores.length === 1) {
+      map.setView(puntosRepartidores[0], 15);
     }
-  }, [repartidores, pedidos]);
+  }, [repartidores, pedidos, empresaPin]);
 
   return <div ref={containerRef} className="relative h-full w-full" />;
 }

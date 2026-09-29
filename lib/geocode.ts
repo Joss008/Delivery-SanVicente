@@ -7,14 +7,29 @@
 
 type Coords = { lat: number; lng: number };
 
+export type AddressSuggestion = {
+  displayName: string;
+  lat: number;
+  lng: number;
+  type?: string;
+  /** Subtipo/clase OSM (e.g. "highway", "residential", "house"). Útil para
+   *  mostrar un ícono en el dropdown. */
+  category?: string;
+};
+
 declare global {
 
   var __geocodeCache: Map<string, Coords> | undefined;
+  var __geocodeSuggestionsCache: Map<string, AddressSuggestion[]> | undefined;
 }
 
 const cache: Map<string, Coords> =
   globalThis.__geocodeCache ?? new Map<string, Coords>();
 globalThis.__geocodeCache = cache;
+
+const suggestionCache: Map<string, AddressSuggestion[]> =
+  globalThis.__geocodeSuggestionsCache ?? new Map<string, AddressSuggestion[]>();
+globalThis.__geocodeSuggestionsCache = suggestionCache;
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const TIMEOUT_MS = 5_000;
@@ -46,6 +61,78 @@ const QUERIES_FALLBACK = [
   () => "San Vicente de Cañete, Cañete, Perú",
   () => "Cañete, Lima, Perú",
 ];
+
+/**
+ * Devuelve hasta `limit` sugerencias para un texto libre (típicamente lo que
+ * el usuario está tipeando). Pensado para alimentar un autocomplete al estilo
+ * Google Maps detrás del formulario de empresas.
+ *
+ * - Filtra resultados a menos de 150 km de Cañete (igual que geocodeAddress).
+ * - Cachea por query exacto (lowercase). Las queries idénticas no consumen
+ *   cupo de Nominatim.
+ * - Devuelve `[]` si Nominatim no responde o no encuentra nada.
+ */
+export async function searchAddressSuggestions(
+  query: string,
+  limit = 5
+): Promise<AddressSuggestion[]> {
+  const q = query.trim();
+  if (q.length < 3) return [];
+  const key = `s:${q.toLowerCase()}`;
+  const cached = suggestionCache.get(key);
+  if (cached) return cached;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const url = new URL(NOMINATIM_URL);
+    url.searchParams.set("q", q);
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "0");
+    url.searchParams.set("limit", String(limit));
+    url.searchParams.set("countrycodes", "pe");
+    url.searchParams.set("viewbox", VIEWBOX);
+
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "RepartoCanete/1.0",
+        Accept: "application/json",
+        "Accept-Language": "es",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return [];
+    const data = (await res.json()) as Array<{
+      lat: string;
+      lon: string;
+      display_name?: string;
+      type?: string;
+      class?: string;
+    }>;
+
+    const sugerencias: AddressSuggestion[] = [];
+    for (const hit of data) {
+      const lat = Number(hit.lat);
+      const lng = Number(hit.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const km = haversineKm(CAÑETE_CENTER[0], CAÑETE_CENTER[1], lat, lng);
+      if (km > MAX_DISTANCE_KM) continue;
+      sugerencias.push({
+        displayName: hit.display_name ?? q,
+        lat,
+        lng,
+        type: hit.type,
+        category: hit.class,
+      });
+    }
+    suggestionCache.set(key, sugerencias);
+    return sugerencias;
+  } catch {
+    return [];
+  }
+}
 
 export async function geocodeAddress(
   address: string

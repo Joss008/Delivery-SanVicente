@@ -31,6 +31,20 @@ export default function MapLegendCard() {
               <span className="text-foreground">Ocupado</span>
             </li>
             <li className="flex items-center gap-2">
+              <span
+                className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-slate-500 bg-slate-100 text-[10px] font-bold text-slate-600"
+              >
+                RC
+                <span className="absolute -bottom-1 -right-1 flex h-3 w-3 items-center justify-center rounded-full bg-slate-600 ring-[1.5px] ring-white">
+                  <svg viewBox="0 0 24 24" width="6" height="6" fill="white">
+                    <rect x="6" y="5" width="4" height="14" rx="1" />
+                    <rect x="14" y="5" width="4" height="14" rx="1" />
+                  </svg>
+                </span>
+              </span>
+              <span className="text-foreground">Fuera de servicio</span>
+            </li>
+            <li className="flex items-center gap-2">
               <span className="flex h-5 w-5 shrink-0 items-center justify-center text-slate-400">
                 <svg viewBox="0 0 24 30" width="14" height="17">
                   <path d="M12 0C6.48 0 2 4.48 2 10c0 7.5 10 20 10 20s10-12.5 10-20C22 4.48 17.52 0 12 0z" fill="currentColor"/>

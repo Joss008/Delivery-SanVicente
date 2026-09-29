@@ -11,14 +11,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button, Card, Field, inputClass, Modal, ConfirmDialog } from "@/components/ui";
-import { Combobox } from "@/components/ui/combobox";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { authFetch } from "@/lib/clientAuth";
 import type { Usuario } from "@/lib/types";
-import {
-  getDepartamentos,
-  getProvincias,
-  getDistritos,
-} from "@/lib/peru-ubigeo";
 
 interface AdminDashboardProps {
   currentAdmin: { id: number; nombre: string; email: string };
@@ -234,60 +229,26 @@ function EmpresaForm({
   existing: Usuario | null;
 }) {
   const [form, setForm] = useState({ nombre: "", email: "", password: "" });
-  const [departamento, setDepartamento] = useState("");
-  const [provincia, setProvincia] = useState("");
-  const [distrito, setDistrito] = useState("");
-  const [direccionExacta, setDireccionExacta] = useState("");
+  const [direccion, setDireccion] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const departamentos = getDepartamentos();
-  const provincias = departamento ? getProvincias(departamento) : [];
-  const distritos = departamento && provincia ? getDistritos(departamento, provincia) : [];
 
   useEffect(() => {
     if (!open) return;
     setError(null);
     setForm({ nombre: "", email: "", password: "" });
-    setDepartamento("");
-    setProvincia("");
-    setDistrito("");
-    setDireccionExacta("");
+    setDireccion("");
     if (existing) {
       setForm({
         nombre: existing.nombre,
         email: existing.email,
         password: "",
       });
-      // En edición mostramos la dirección registrada como texto libre
-      // (compatibilidad con datos antiguos). El usuario puede cambiarla
-      // escribiendo una nueva referencia exacta.
-      setDireccionExacta(existing.direccion ?? "");
+      // Compatibilidad con empresas creadas antes del autocomplete: prefilamos
+      // la dirección registrada para que el admin la vea y pueda ajustarla.
+      setDireccion(existing.direccion ?? "");
     }
   }, [open, existing]);
-
-  // Resets en cascada: cambiar departamento limpia provincia/distrito.
-  useEffect(() => {
-    if (!departamento) {
-      setProvincia("");
-      setDistrito("");
-      return;
-    }
-    if (!provincias.includes(provincia)) {
-      setProvincia("");
-      setDistrito("");
-    }
-  }, [departamento]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!provincia) {
-      setDistrito("");
-      return;
-    }
-    if (!distritos.includes(distrito)) {
-      setDistrito("");
-    }
-  }, [provincia]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -297,29 +258,10 @@ function EmpresaForm({
       const url = existing ? `/api/usuarios/${existing.id}` : "/api/usuarios";
       const method = existing ? "PUT" : "POST";
 
-      // En creación nueva requerimos los 3 selects. En edición permitimos
-      // que la dirección quede como texto libre (compat con empresas
-      // registradas antes de este cambio).
-      let direccionFinal = direccionExacta.trim();
-      if (!existing || departamento) {
-        if (!departamento || !provincia || !distrito) {
-          setError("Selecciona departamento, provincia y distrito.");
-          setSaving(false);
-          return;
-        }
-        const partes = [
-          direccionExacta.trim(),
-          distrito,
-          provincia,
-          departamento,
-        ].filter(Boolean);
-        direccionFinal = partes.join(", ");
-      }
-
       const body: Record<string, string> = {
         nombre: form.nombre,
         email: form.email,
-        direccion: direccionFinal,
+        direccion: direccion.trim(),
       };
       if (form.password) body.password = form.password;
       const res = await authFetch(url, {
@@ -382,59 +324,17 @@ function EmpresaForm({
 
         <div className="space-y-2">
           <p className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-            <MapPin className="h-3.5 w-3.5" /> Ubicación del negocio (Perú)
+            <MapPin className="h-3.5 w-3.5" /> Ubicación del negocio
           </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="Departamento">
-              <Combobox
-                value={departamento}
-                onChange={setDepartamento}
-                options={departamentos}
-                placeholder="Selecciona…"
-              />
-            </Field>
-            <Field label="Provincia">
-              <Combobox
-                value={provincia}
-                onChange={setProvincia}
-                options={provincias}
-                placeholder="Selecciona…"
-                disabled={!departamento}
-              />
-            </Field>
-            <Field label="Distrito">
-              <Combobox
-                value={distrito}
-                onChange={setDistrito}
-                options={distritos}
-                placeholder="Selecciona…"
-                disabled={!provincia}
-              />
-            </Field>
-          </div>
-          <Field label="Dirección exacta (calle, avenida, número)">
-            <input
-              className={inputClass}
-              value={direccionExacta}
-              placeholder="Av. Mariscal Benavides 450"
-              onChange={(e) => setDireccionExacta(e.target.value)}
-            />
-          </Field>
-          {(departamento || provincia || distrito || direccionExacta) && (
-            <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-xs">
-              <span className="font-semibold text-primary">Vista previa: </span>
-              <span className="text-foreground/80">
-                {[
-                  direccionExacta.trim(),
-                  distrito,
-                  provincia,
-                  departamento,
-                ]
-                  .filter(Boolean)
-                  .join(", ") || "(vacía)"}
-              </span>
-            </div>
-          )}
+          <AddressAutocomplete
+            value={direccion}
+            onChange={setDireccion}
+            placeholder="Busca una dirección (ej. Av. Mariscal Benavides 450, Cañete)"
+          />
+          <p className="text-xs text-muted-foreground">
+            Empieza a escribir y elige una sugerencia para fijar la dirección
+            exacta. Esto se usará como punto de recojo por defecto.
+          </p>
         </div>
 
         {error && (

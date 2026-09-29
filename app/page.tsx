@@ -49,6 +49,58 @@ const NAV: { key: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "pedidos", label: "Pedidos", icon: Package },
 ];
 
+/**
+ * Caché local del pin del local por dirección. La primera geocodificación de
+ * cada dirección tarda 1-2 s contra Nominatim; con esto, el mapa centra en
+ * la empresa desde el primer render en recargas posteriores.
+ *
+ * Estructura: { v: 1, pins: { [direccion]: { lat, lng, label, t } } }
+ * `t` es el timestamp de la última geocodificación; entradas con más de 30
+ * días se descartan para forzar un refresh.
+ */
+const PIN_CACHE_KEY = "empresaPinCache:v1";
+const PIN_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type EmpresaPin = { lat: number; lng: number; label: string };
+
+function leerPinCacheado(direccion: string | null): EmpresaPin | null {
+  if (typeof window === "undefined" || !direccion) return null;
+  try {
+    const raw = localStorage.getItem(PIN_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as {
+      v: number;
+      pins: Record<string, { lat: number; lng: number; label: string; t: number }>;
+    };
+    if (data.v !== 1) return null;
+    const entry = data.pins[direccion];
+    if (!entry) return null;
+    if (Date.now() - entry.t > PIN_CACHE_TTL_MS) return null;
+    return { lat: entry.lat, lng: entry.lng, label: entry.label };
+  } catch {
+    return null;
+  }
+}
+
+function guardarPinCacheado(direccion: string | null, pin: EmpresaPin | null) {
+  if (typeof window === "undefined" || !direccion) return;
+  try {
+    const raw = localStorage.getItem(PIN_CACHE_KEY);
+    const data: {
+      v: number;
+      pins: Record<string, { lat: number; lng: number; label: string; t: number }>;
+    } = raw ? JSON.parse(raw) : { v: 1, pins: {} };
+    if (pin) {
+      data.pins[direccion] = { ...pin, t: Date.now() };
+    } else {
+      delete data.pins[direccion];
+    }
+    localStorage.setItem(PIN_CACHE_KEY, JSON.stringify(data));
+  } catch {
+    // localStorage puede estar deshabilitado: silencioso.
+  }
+}
+
 const PAGE_META: Record<Tab, { title: string; description: string }> = {
   mapa: {
     title: "Panel de control",
@@ -238,8 +290,16 @@ function EmpresaShell({
   const [pedDetalleOtp, setPedDetalleOtp] = useState<PedidoConRepartidor | null>(null);
   const [pedDetalleReclamo, setPedDetalleReclamo] = useState<PedidoConRepartidor | null>(null);
   const [pedDeleteTarget, setPedDeleteTarget] = useState<PedidoConRepartidor | null>(null);
+  const [pedReporte, setPedReporte] = useState<PedidoConRepartidor | null>(null);
   const [pedDeleting, setPedDeleting] = useState(false);
   const [pedDeleteError, setPedDeleteError] = useState<string | null>(null);
+  // Pin permanente del local de la empresa en el mapa. Se inicializa desde
+  // localStorage (si ya geocodificamos esa dirección antes) para que el
+  // mapa centre en la empresa desde el primer render, sin esperar a la
+  // respuesta de Nominatim.
+  const [empresaPin, setEmpresaPin] = useState<
+    { lat: number; lng: number; label: string } | null
+  >(() => leerPinCacheado(currentUser.direccion ?? null));
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -272,6 +332,46 @@ function EmpresaShell({
     const id = setInterval(refresh, 15000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  // Geocodifica la dirección del local cuando cambia. El estado inicial ya
+  // trae el pin cacheado de localStorage (si existe) — aquí sólo refrescamos
+  // desde el backend para mantenerlo vigente y guardamos el resultado en
+  // cache para la próxima recarga.
+  useEffect(() => {
+    const dir = (currentUser.direccion ?? "").trim();
+    if (!dir) {
+      setEmpresaPin(null);
+      guardarPinCacheado(null, null);
+      return;
+    }
+    const cacheado = leerPinCacheado(dir);
+    if (cacheado) {
+      setEmpresaPin(cacheado);
+    }
+    let cancelado = false;
+    fetch(`/api/geocode/one?q=${encodeURIComponent(dir)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((coords) => {
+        if (cancelado) return;
+        if (
+          coords &&
+          Number.isFinite(coords.lat) &&
+          Number.isFinite(coords.lng)
+        ) {
+          const pin = { lat: coords.lat, lng: coords.lng, label: dir };
+          setEmpresaPin(pin);
+          guardarPinCacheado(dir, pin);
+        } else if (!cacheado) {
+          setEmpresaPin(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelado && !cacheado) setEmpresaPin(null);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [currentUser.direccion]);
 
   const onLogout = useCallback(async () => {
     await authFetch("/api/auth/usuarios/logout", { method: "POST" }).catch(() => null);
@@ -334,7 +434,11 @@ function EmpresaShell({
               <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
                 <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
                   <div className="h-[calc(100vh-16rem)] min-h-[380px]">
-                    <MapView repartidores={repartidoresEnMapa} pedidos={pedidos} />
+                    <MapView
+                      repartidores={repartidoresEnMapa}
+                      pedidos={pedidos}
+                      empresaPin={empresaPin}
+                    />
                   </div>
 
                   <div className="absolute left-3 top-3 z-[1000] flex flex-col gap-2">
@@ -417,42 +521,68 @@ function EmpresaShell({
                         Repartidores activos
                       </h3>
                       <ul className="space-y-2">
-                        {repartidoresEnMapa.slice(0, 5).map((r) => (
-                          <li
-                            key={r.id}
-                            className="flex items-center gap-3 rounded-xl px-3 py-2"
-                          >
-                            <div className="relative">
-                              <div
-                                className={cn(
-                                  "flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold text-white",
-                                  r.estado === "disponible"
-                                    ? "bg-emerald-500"
-                                    : r.estado === "ocupado"
-                                      ? "bg-amber-500"
-                                      : "bg-slate-400"
-                                )}
-                              >
-                                {initials(r.nombre)}
-                              </div>
-                              {r.ubicacion_recibida_en && (
-                                <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-400" />
+                        {repartidoresEnMapa.slice(0, 5).map((r) => {
+                          const pausado = !!r.gps_pausado_en;
+                          return (
+                            <li
+                              key={r.id}
+                              className={cn(
+                                "flex items-center gap-3 rounded-xl px-3 py-2",
+                                pausado && "opacity-70"
                               )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium text-foreground">
-                                {r.nombre}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {r.estado === "disponible"
-                                  ? "Disponible"
-                                  : r.estado === "ocupado"
-                                    ? "En ruta"
-                                    : "Inactivo"}
-                              </p>
-                            </div>
-                          </li>
-                        ))}
+                            >
+                              <div className="relative">
+                                <div
+                                  className={cn(
+                                    "flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold",
+                                    pausado
+                                      ? "border-2 border-dashed border-slate-400 bg-slate-100 text-slate-600"
+                                      : cn(
+                                          "text-white",
+                                          r.estado === "disponible"
+                                            ? "bg-emerald-500"
+                                            : r.estado === "ocupado"
+                                              ? "bg-amber-500"
+                                              : "bg-slate-400"
+                                        )
+                                  )}
+                                >
+                                  {initials(r.nombre)}
+                                </div>
+                                {r.ubicacion_recibida_en && !pausado && (
+                                  <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-card bg-emerald-400" />
+                                )}
+                                {pausado && (
+                                  <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-slate-600 ring-[1.5px] ring-card">
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      width="8"
+                                      height="8"
+                                      fill="white"
+                                    >
+                                      <rect x="6" y="5" width="4" height="14" rx="1" />
+                                      <rect x="14" y="5" width="4" height="14" rx="1" />
+                                    </svg>
+                                  </span>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium text-foreground">
+                                  {r.nombre}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {pausado
+                                    ? "Fuera de servicio"
+                                    : r.estado === "disponible"
+                                      ? "Disponible"
+                                      : r.estado === "ocupado"
+                                        ? "En ruta"
+                                        : "Inactivo"}
+                                </p>
+                              </div>
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   )}
@@ -546,10 +676,22 @@ function EmpresaShell({
                                     Expirado
                                   </span>
                                 )}
+                                {/*
+                                  El detalle antifraude (motivo, distancia,
+                                  tiempo) sólo se muestra si el operador abre el
+                                  "Reporte". Mantenerlo oculto por defecto para
+                                  no ensuciar la tabla cuando es un pedido
+                                  normal.
+                                */}
                                 {sospechoso && (
-                                  <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
-                                    Alerta
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPedReporte(p)}
+                                    className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 transition hover:bg-amber-100"
+                                  >
+                                    <ShieldAlert className="h-3 w-3" />
+                                    Reporte
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -564,9 +706,19 @@ function EmpresaShell({
                                   No recibí
                                 </Button>
                               )}
-                              <Button variant="ghost" onClick={() => setPedEdit(p)} aria-label="Editar">
-                                <Pencil className="h-4 w-4" />
-                              </Button>
+                              {/* El pedido deja de ser editable en cuanto cambia de
+                                  estado: aceptado, en reparto o ya entregado. Sólo
+                                  "pendiente" se puede corregir antes de que un
+                                  motorizado lo tome. */}
+                              {p.estado === "pendiente" && (
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => setPedEdit(p)}
+                                  aria-label="Editar"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              )}
                               <Button variant="ghost" onClick={() => setPedDeleteTarget(p)} aria-label="Eliminar">
                                 <Trash2 className="h-4 w-4 text-destructive" />
                               </Button>
@@ -656,6 +808,74 @@ function EmpresaShell({
           await refresh();
         }}
       />
+
+      <Modal
+        title={`Reporte · ${pedReporte?.codigo ?? ""}`}
+        open={!!pedReporte}
+        onClose={() => setPedReporte(null)}
+      >
+        {pedReporte && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="text-sm">
+                El sistema marcó este pedido como posiblemente sospechoso. Revisa
+                los datos antes de tomar una decisión.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/40 p-3 text-sm">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-semibold tracking-tight">
+                  {pedReporte.codigo}
+                </span>
+                <Badge value={pedReporte.estado} map={ESTADO_PEDIDO} />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {pedReporte.empresa} · {pedReporte.repartidor_nombre ?? "Sin asignar"}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-md border border-border bg-card p-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Distancia
+                </p>
+                <p className="mt-0.5 font-semibold tabular-nums">
+                  {pedReporte.alerta_distancia_km != null
+                    ? `${pedReporte.alerta_distancia_km.toFixed(2)} km`
+                    : "—"}
+                </p>
+              </div>
+              <div className="rounded-md border border-border bg-card p-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Tiempo en ruta
+                </p>
+                <p className="mt-0.5 font-semibold tabular-nums">
+                  {pedReporte.alerta_tiempo_seg != null
+                    ? `${Math.round(pedReporte.alerta_tiempo_seg / 60)} min`
+                    : "—"}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Motivo
+              </p>
+              <p className="mt-1 rounded-md border border-border bg-card p-3 text-sm">
+                {pedReporte.alerta_motivo ?? "Sin detalle"}
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setPedReporte(null)}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <ConfirmDialog
         open={!!pedDeleteTarget}

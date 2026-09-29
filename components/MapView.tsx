@@ -12,12 +12,27 @@ const LeafletMap = dynamic(() => import("./LeafletMap"), {
   ),
 });
 
+export interface EmpresaPin {
+  lat: number;
+  lng: number;
+  /** Texto que se muestra en el popup del pin (ej. nombre del local). */
+  label?: string;
+}
+
 export default function MapView({
   repartidores,
   pedidos,
+  empresaPin,
 }: {
   repartidores: Repartidor[];
   pedidos: PedidoConRepartidor[];
+  empresaPin?: EmpresaPin | null;
 }) {
-  return <LeafletMap repartidores={repartidores} pedidos={pedidos} />;
+  return (
+    <LeafletMap
+      repartidores={repartidores}
+      pedidos={pedidos}
+      empresaPin={empresaPin ?? null}
+    />
+  );
 }

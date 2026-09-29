@@ -7,8 +7,20 @@ export function hashPassword(password: string, salt = crypto.randomBytes(16).toS
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
-  return crypto.timingSafeEqual(Buffer.from(candidate, "hex"), Buffer.from(hash, "hex"));
+  if (!password || !hash || !salt) return false;
+  // scryptSync con keylen=64 produce exactamente 64 bytes (128 hex chars).
+  // Si el hash guardado tiene otra longitud es porque la fila está corrupta
+  // (p.ej. se guardó el nombre o el email en el campo hash). Fallamos
+  // cerrado a "no coincide" en lugar de tirar RangeError y devolver 500.
+  let stored: Buffer;
+  try {
+    stored = Buffer.from(hash, "hex");
+  } catch {
+    return false;
+  }
+  if (stored.length !== 64) return false;
+  const candidate = crypto.scryptSync(password, salt, 64);
+  return crypto.timingSafeEqual(candidate, stored);
 }
 
 export function generateToken(): string {
