@@ -29,10 +29,10 @@ function rutaBdEsEfimera(resolvedDataDir: string): boolean {
 }
 
 /**
- * Garantiza que la BD viva en un directorio persistente en producción. Si
- * la configuración lleva la BD al directorio del proyecto, lanzamos un error
- * ruidoso al iniciar para que el deploy falle en vez de arrancar con datos
- * que se borrarán en el próximo push.
+ * Avisa en consola si la BD va a quedar en un directorio efímero. NO falla
+ * el arranque (por compatibilidad con Render Free sin disco persistente):
+ * es responsabilidad del operador leer el warning y decidir si le sirve
+ * perder los datos en cada deploy.
  */
 function assertBdPersistente(): void {
   console.log(
@@ -43,11 +43,6 @@ function assertBdPersistente(): void {
     console.warn(
       `[db] ⚠️  La BD está dentro del proyecto (${path.relative(PROJECT_ROOT, DB_PATH)}). En producción se borrará en cada deploy.`
     );
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        `BD configurada en directorio efímero (${DB_PATH}). Configurá DATA_DIR=/var/data y montá un disco persistente en esa ruta. Ver DEPLOY.md sección 2.`
-      );
-    }
   }
 }
 
